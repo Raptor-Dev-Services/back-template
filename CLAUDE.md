@@ -63,7 +63,15 @@ back-template/
 ├── Host/
 │   ├── Program.cs
 │   ├── Extensions/
+│   │   ├── JwtAuthExtensions.cs             ← AddJwtAuthentication(config)
+│   │   ├── CorsExtensions.cs                ← AddLocalhostCors() + PolicyName
+│   │   ├── SwaggerExtensions.cs             ← AddSwaggerWithJwt()
+│   │   └── HealthExtensions.cs              ← AddHealthServices(config) + MapHealth()
 │   ├── appsettings.json
+│   ├── appsettings.Local.json               ← dev diario, SQL text logging activo
+│   ├── appsettings.Development.json
+│   ├── appsettings.Staging.json
+│   ├── appsettings.Production.json
 │   └── Services/Schema Migration/Tables/*.sql
 ├── Tests/
 └── Common/   (submódulo — NO editar desde este repo)
@@ -75,11 +83,11 @@ back-template/
 
 | Categoría | Tecnología |
 |-----------|-----------|
-| Runtime | .NET 10 / C# 12 |
+| Runtime | .NET 10 / C# 13 |
 | Framework | ASP.NET Core 10 |
 | Base de datos | PostgreSQL 17 |
 | ORM | Dapper (raw SQL parametrizado) |
-| Driver | Npgsql 8 |
+| Driver | Npgsql 10 |
 | Mediator | Custom — `Common.Messaging` (NO MediatR NuGet) |
 | Auth | JWT Bearer HS256 |
 | Passwords | BCrypt.Net-Next |
@@ -336,12 +344,14 @@ services.AddScoped<INotificationHandler<GetExampleUserResponse>, GetExampleUserP
 
 Viven en `Host/Services/Schema Migration/Tables/`. Se ejecutan automáticamente al iniciar.
 
-**Numeración:** cada entidad ocupa un bloque de 10 números.
+**Numeración:** 3 dígitos, orden secuencial. Cada entidad suele ocupar 2 archivos.
 
 ```
-X0_<tabla>.sql            — CREATE TABLE IF NOT EXISTS
-X1_<tabla>_indexes.sql    — índices
+NNN_<tabla>.sql            — CREATE TABLE IF NOT EXISTS
+NNN+1_<tabla>_indexes.sql  — índices
 ```
+
+Ejemplo: `001_example_users.sql`, `002_example_users_indexes.sql`. La siguiente entidad empieza en `010`, la siguiente en `020`, etc. (bloques de 10 por entidad).
 
 **Reglas absolutas:**
 - Todos los archivos son idempotentes: `CREATE TABLE IF NOT EXISTS`.
@@ -355,10 +365,14 @@ X1_<tabla>_indexes.sql    — índices
 
 | Archivo | Responsabilidad |
 |---------|----------------|
-| `Application/ServiceCollectionEx.cs` | `services.AddMediator(Assembly.GetExecutingAssembly())` |
-| `Infrastructure/ServiceCollectionEx.cs` | Factories, `...Sql`, repositorios, servicios externos |
-| `WebApi/ServiceCollectionEx.cs` | `ResultViewModel<>`, presenters, controladores |
-| `Host/Program.cs` | Composición final, middleware, JWT auth, health, Swagger |
+| `Application/ServiceCollectionEx.cs` | `AddApplicationServices()` — mediator + handlers |
+| `Infrastructure/ServiceCollectionEx.cs` | `AddInfrastructureServices(config)` — factories, `...Sql`, repositorios |
+| `WebApi/ServiceCollectionEx.cs` | `AddWebApiServices()` — `ResultViewModel<>`, presenters, controllers |
+| `Host/Extensions/JwtAuthExtensions.cs` | `AddJwtAuthentication(config)` — JWT HS256 |
+| `Host/Extensions/CorsExtensions.cs` | `AddLocalhostCors()` — CORS localhost:\* |
+| `Host/Extensions/SwaggerExtensions.cs` | `AddSwaggerWithJwt()` — Swagger + Bearer UI |
+| `Host/Extensions/HealthExtensions.cs` | `AddHealthServices(config)` + `MapHealth()` — `/api/health` |
+| `Host/Program.cs` | Composición final: llama todos los `Add*` y configura middleware/endpoints |
 
 Lifetimes: `MainDbConnectionFactory` → Singleton. `MainDapperDbConnection`, `...Sql`, repositorios, presenters, `ResultViewModel<>` → Scoped.
 
@@ -405,5 +419,6 @@ Lifetimes: `MainDbConnectionFactory` → Singleton. `MainDapperDbConnection`, `.
 4. Nuevo repositorio → `Infrastructure/Repositories/{Modulo}/` + DI en `Infrastructure/ServiceCollectionEx.cs`.
 5. Nuevo caso de uso → `Application/UseCases/{Modulo}/{Accion}/` (Request + Handler + Responses/).
 6. Nuevo presenter → `WebApi/EndPoints/{Modulo}/Presenters/` + registro en `WebApi/ServiceCollectionEx.cs`.
+7. Nuevo controller (o nuevo endpoint) → `WebApi/EndPoints/{Modulo}/{Modulo}Controller.cs` extiende `BaseApiController`, inyecta `ResultViewModel<{Modulo}Controller>` y `ILogger<>`.
 
 **Al terminar:** `dotnet build` desde `Host` — 0 errores.

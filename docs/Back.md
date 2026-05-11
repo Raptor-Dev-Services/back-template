@@ -8,11 +8,11 @@ Guía de referencia para agregar funcionalidad al backend. Todo código generado
 
 | Categoría | Tecnología |
 |-----------|-----------|
-| Runtime | .NET 10 / C# 12 |
+| Runtime | .NET 10 / C# 13 |
 | Framework | ASP.NET Core 10 |
 | Base de datos | PostgreSQL 17 |
 | ORM | Dapper (raw SQL parametrizado) |
-| Driver | Npgsql 8 |
+| Driver | Npgsql 10 |
 | Mediator | Custom — `Common.Messaging` (NO MediatR NuGet) |
 | Auth | JWT Bearer HS256 |
 | Passwords | BCrypt.Net-Next |
@@ -283,12 +283,42 @@ public sealed class GetExampleUsersPresenter : IPresenter<GetExampleUsersRespons
 }
 ```
 
+**Variante C — éxito sin datos (Update, Disable, acciones que no retornan entidad):**
+
+```csharp
+using Application.UseCases.Example.UpdateExampleUser;
+using Common.Abstractions;
+using Common.Results;
+using Common.ViewModels;
+
+namespace WebApi.EndPoints.Example.Presenters;
+
+public sealed class UpdateExampleUserPresenter : IPresenter<UpdateExampleUserResponse>
+{
+    private readonly ResultViewModel<ExampleUsersController> _viewModel;
+
+    public UpdateExampleUserPresenter(ResultViewModel<ExampleUsersController> viewModel)
+        => _viewModel = viewModel;
+
+    public Task Handle(UpdateExampleUserResponse notification, CancellationToken cancellationToken)
+    {
+        if (notification is IFailure failure)
+            _viewModel.Fail(failure.Message);
+        else if (notification is ISuccess)
+            _viewModel.OK(new { });            // ← éxito sin datos: objeto vacío
+
+        return Task.CompletedTask;
+    }
+}
+```
+
 **Métodos de `ResultViewModel<T>`:**
 
 | Método | Cuándo usarlo |
 |--------|--------------|
-| `_viewModel.Set(ISuccess<TDto> success)` | Éxito con `ISuccess<TDto>` — Data = success.Data |
-| `_viewModel.OK(object data)` | Éxito con datos custom — Data = el objeto que pases |
+| `_viewModel.Set(ISuccess<TDto> success)` | Variante A — éxito con `ISuccess<TDto>`, Data = success.Data |
+| `_viewModel.OK(object data)` | Variante B — éxito con datos custom (paginación, colecciones) |
+| `_viewModel.OK(new { })` | Variante C — éxito sin datos (update, disable, acciones sin retorno) |
 | `_viewModel.Fail(string message)` | Cualquier fallo — IsSuccess = false |
 
 ### 5. Controller — `WebApi/EndPoints/{Modulo}/{Modulo}Controller.cs`
@@ -307,7 +337,7 @@ using WebApi.EndPoints.Example.RequestBodies;
 namespace WebApi.EndPoints.Example;
 
 [Route("api/example/users")]
-[Authorize]
+// [Authorize]   ← descomentar en producción
 public sealed class ExampleUsersController : BaseApiController
 {
     private readonly ILogger<ExampleUsersController> _logger;
@@ -445,6 +475,113 @@ public static class ServiceCollectionEx
 | DTO | `{Entidad}Dto` | `ExampleUserDto` |
 | Repositorio interfaz | `I{Entidad}Repository` | `IExampleUserRepository` |
 | Servicio interfaz | `I{Feature}Service` | `IJwtTokenService` |
+
+---
+
+## Program.cs — composición del Host
+
+```csharp
+using Application;
+using Common.Logging;
+using Common.Observability;
+using Common.PostgreSql;
+using Common.Web;
+using Host.Extensions;
+using Infrastructure;
+using WebApi;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Observabilidad
+builder.Services.AddLoggingServices(builder.Configuration);        // Serilog → Seq
+builder.Services.AddObservability(builder.Configuration);          // OpenTelemetry OTLP + Prometheus
+
+// Capas de la aplicación
+builder.Services.AddApplicationServices();                         // Mediator + handlers
+builder.Services.AddInfrastructureServices(builder.Configuration); // DB + repositorios
+builder.Services.AddWebApiServices();                              // Presenters + controllers
+
+// Servicios del host
+builder.Services.AddSchemaMigrations();                            // Migraciones SQL automáticas
+builder.Services.AddHealthServices(builder.Configuration);         // /api/health (Npgsql check)
+
+builder.Services.AddJwtAuthentication(builder.Configuration);      // JWT HS256
+builder.Services.AddLocalhostCors();                               // CORS localhost:*
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerWithJwt();                              // Swagger + Bearer UI
+
+var app = builder.Build();
+
+// Swagger: activo en Local, Development y Staging
+if (app.Environment.IsDevelopment() ||
+    app.Environment.IsEnvironment("Local") ||
+    app.Environment.IsEnvironment("Staging"))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+// Middleware
+app.UseCoreProblemDetails();
+app.UseCorrelationId();
+// app.UseHttpsRedirection();   // habilitar en producción con TLS terminado en el host
+app.UseCors(CorsExtensions.PolicyName);
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Endpoints
+app.MapControllers();
+app.MapHealth();
+app.MapPrometheusScrapingEndpoint();   // /metrics
+
+app.Run();
+```
+
+---
+
+## Host/Extensions
+
+Cada extensión encapsula la configuración de un servicio. Viven en `Host/Extensions/`.
+
+### `JwtAuthExtensions.cs` — `AddJwtAuthentication(config)`
+
+Lee `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`. Lanza `InvalidOperationException` si alguno falta. HS256, `ClockSkew = TimeSpan.Zero`.
+
+### `CorsExtensions.cs` — `AddLocalhostCors()` + `CorsExtensions.PolicyName`
+
+Permite cualquier origen `localhost` / `127.0.0.1`, cualquier header/método, con credenciales. El `PolicyName` es la constante que pasa a `app.UseCors(...)`.
+
+### `SwaggerExtensions.cs` — `AddSwaggerWithJwt()`
+
+Swagger con esquema Bearer pre-configurado. El campo de token en Swagger UI no requiere el prefijo "Bearer".
+
+### `HealthExtensions.cs` — `AddHealthServices(config)` + `MapHealth()`
+
+Registra check de PostgreSQL con tag `["db", "postgres"]`. Expone `GET /api/health` con JSON:
+
+```json
+{
+  "status": "Healthy",
+  "totalDuration": 12.3,
+  "checks": [
+    { "name": "postgres", "status": "Healthy", "duration": 11.2, "tags": ["db","postgres"], "error": null }
+  ]
+}
+```
+
+---
+
+## Entornos y appsettings
+
+| Entorno | Archivo | Swagger | SQL text log |
+|---------|---------|---------|--------------|
+| `Local` | `appsettings.Local.json` | ✓ | ✓ |
+| `Development` | `appsettings.Development.json` | ✓ | ✗ |
+| `Staging` | `appsettings.Staging.json` | ✓ | ✗ |
+| `Production` | `appsettings.Production.json` | ✗ | ✗ |
+
+`Local` es el perfil de trabajo diario en máquina: activa `CustomLogging:IncludeSqlText: true` para ver el SQL real en los logs de Serilog.
 
 ---
 

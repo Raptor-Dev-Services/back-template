@@ -340,20 +340,22 @@ builder.Services.AddSchemaMigrations();
 
 ### Convención de numeración
 
-Cada entidad ocupa un bloque de 10 números:
+Archivos de 3 dígitos en orden secuencial. Cada entidad ocupa un bloque de 10 números, lo que deja espacio para vistas, triggers o ALTER TABLE del mismo módulo:
 
-| Sufijo | Tipo | Ejemplo |
-|--------|------|---------|
-| `X0` | `CREATE TABLE` | `010_users.sql` |
-| `X1` | Índices | `011_users_indexes.sql` |
-| `X2` | Vistas | `012_users_view.sql` |
-| `X3` | Triggers u otras validaciones | `013_users_trigger.sql` |
-| libre | `ALTER TABLE` incremental | `320_products_add_image_key.sql` |
+| N | Tipo | Ejemplo |
+|---|------|---------|
+| `X01` | `CREATE TABLE` | `001_example_users.sql` |
+| `X02` | Índices | `002_example_users_indexes.sql` |
+| `X03` | Vistas | `003_example_users_view.sql` |
+| `X04` | Triggers / validaciones | `004_example_users_trigger.sql` |
+| libre | `ALTER TABLE` incremental | `015_example_users_add_phone.sql` |
+
+La primera entidad real del proyecto empieza en bloque `010` (`010_mi_entidad.sql`, `011_mi_entidad_indexes.sql`), dejando `001–009` para el módulo Example de la plantilla.
 
 También se pueden combinar tabla e índices en **un único archivo** si la entidad es sencilla:
 
 ```
-010_users.sql   ← CREATE TABLE + CREATE INDEX en el mismo archivo
+010_mi_entidad.sql   ← CREATE TABLE + CREATE INDEX en el mismo archivo
 ```
 
 ### Reglas absolutas

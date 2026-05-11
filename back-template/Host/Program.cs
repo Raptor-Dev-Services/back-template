@@ -39,7 +39,7 @@ if (app.Environment.IsDevelopment() ||
 app.UseCoreProblemDetails();
 app.UseCorrelationId();
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseCors(CorsExtensions.PolicyName);
 app.UseAuthentication();
 app.UseAuthorization();

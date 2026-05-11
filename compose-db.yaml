@@ -1,0 +1,40 @@
+# compose-db.yaml
+# Levanta solo la infraestructura (PostgreSQL + Seq) para desarrollo local.
+# La API corre fuera de Docker con: dotnet run --project back-template/Host --launch-profile Local
+#
+# Uso:
+#   docker compose -f compose-db.yaml up -d
+#   dotnet run --project back-template/Host --launch-profile Local
+
+services:
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: back_template_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d back_template_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  seq:
+    image: datalust/seq:latest
+    environment:
+      ACCEPT_EULA: "Y"
+    ports:
+      - "5341:80"
+    volumes:
+      - seq_local_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_local_data:
+  seq_local_data:
