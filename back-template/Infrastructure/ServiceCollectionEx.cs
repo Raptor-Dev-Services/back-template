@@ -8,19 +8,25 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Infrastructure;
 
+/// <summary>
+/// Extensiones de <see cref="IServiceCollection"/> para registrar los servicios de la capa Infrastructure.
+/// </summary>
 public static class ServiceCollectionEx
 {
+    /// <summary>
+    /// Registra fábricas de conexión, clases SQL, repositorios y servicios externos.
+    /// </summary>
+    /// <param name="services">Colección de servicios del contenedor DI.</param>
+    /// <param name="configuration">Configuración de la aplicación.</param>
+    /// <returns>La misma <paramref name="services"/> para encadenamiento.</returns>
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
-        // Database connection
         services.AddSingleton<MainDbConnectionFactory>();
         services.AddSingleton<IOpenDbConnectionFactory>(sp => sp.GetRequiredService<MainDbConnectionFactory>());
         services.AddScoped<MainDapperDbConnection>();
 
-        // SQL objects
         services.AddScoped<ExampleUsersSql>();
 
-        // Repositories
         services.AddScoped<IExampleUserRepository, ExampleUserRepository>();
 
         return services;

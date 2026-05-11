@@ -21,8 +21,10 @@ builder.Services.AddHealthServices(builder.Configuration);
 
 builder.Services.AddJwtAuthentication(builder.Configuration);
 
+builder.Services.AddLocalhostCors();
+
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerWithJwt();
 
 var app = builder.Build();
 
@@ -38,6 +40,7 @@ app.UseCoreProblemDetails();
 app.UseCorrelationId();
 
 app.UseHttpsRedirection();
+app.UseCors(CorsExtensions.PolicyName);
 app.UseAuthentication();
 app.UseAuthorization();
 

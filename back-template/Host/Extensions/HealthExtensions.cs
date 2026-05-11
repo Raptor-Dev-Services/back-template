@@ -5,8 +5,17 @@ using System.Text.Json;
 
 namespace Host.Extensions;
 
+/// <summary>
+/// Extensiones para configurar y mapear los health checks de la aplicación.
+/// </summary>
 public static class HealthExtensions
 {
+    /// <summary>
+    /// Registra los health checks. Incluye verificación de conectividad a PostgreSQL.
+    /// </summary>
+    /// <param name="services">Colección de servicios del contenedor DI.</param>
+    /// <param name="configuration">Configuración de la aplicación.</param>
+    /// <returns>La misma <paramref name="services"/> para encadenamiento.</returns>
     public static IServiceCollection AddHealthServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddHealthChecks()
@@ -19,6 +28,11 @@ public static class HealthExtensions
         return services;
     }
 
+    /// <summary>
+    /// Mapea el endpoint <c>GET /api/health</c> con respuesta JSON detallada por servicio.
+    /// </summary>
+    /// <param name="app">La aplicación web.</param>
+    /// <returns>La misma <paramref name="app"/> para encadenamiento.</returns>
     public static WebApplication MapHealth(this WebApplication app)
     {
         app.MapHealthChecks("/api/health", new HealthCheckOptions
@@ -35,9 +49,9 @@ public static class HealthExtensions
 
         var response = new
         {
-            status = report.Status.ToString(),
+            status        = report.Status.ToString(),
             totalDuration = report.TotalDuration.TotalMilliseconds,
-            checks = report.Entries.Select(e => new
+            checks        = report.Entries.Select(e => new
             {
                 name     = e.Key,
                 status   = e.Value.Status.ToString(),
