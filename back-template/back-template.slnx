@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="Common/Common/Common.csproj" />
+  <Project Path="Application/Application.csproj" />
+  <Project Path="Domain/Domain.csproj" />
+  <Project Path="Host/Host.csproj" />
+  <Project Path="Infrastructure/Infrastructure.csproj" />
+  <Project Path="WebApi/WebApi.csproj" Id="465723c0-0461-4b85-8e0a-aa37856f83e1" />
+  <Project Path="Tests/Tests.csproj" />
+</Solution>

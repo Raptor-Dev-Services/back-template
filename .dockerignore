@@ -1,0 +1,30 @@
+# Git
+.git
+.gitmodules
+.gitattributes
+
+# IDE
+.vs
+.vscode
+.idea
+.claude
+
+# Build outputs
+**/bin/
+**/obj/
+
+# Docker
+Dockerfile*
+compose*.yaml
+.dockerignore
+
+# Secrets & env
+**/*.user
+**/.env
+**/.env.*
+!.env.example
+
+# Misc
+**/*.md
+**/*.log
+**/TestResults/
