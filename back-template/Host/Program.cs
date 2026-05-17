@@ -4,6 +4,7 @@ using Common.Observability;
 using Common.PostgreSql;
 using Common.Web;
 using Host.Extensions;
+using Host.Middleware;
 using Infrastructure;
 using WebApi;
 
@@ -43,6 +44,7 @@ app.UseCorrelationId();
 app.UseCors(CorsExtensions.PolicyName);
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<TenantClaimsMiddleware>();
 
 app.MapControllers();
 app.MapHealth();

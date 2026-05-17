@@ -10,14 +10,18 @@ Este documento describe la arquitectura, convenciones y reglas que deben respeta
 
 ## Arquitectura
 
-**Patrón:** Clean Architecture + CQRS + Mediator + Presenter
+**Patrón:** Clean Architecture + CQRS + Mediator + Presenter — **Monolito Modular**
+
+**Módulos actuales:** `Auth` (Login + RefreshToken) · `Users` (CRUD)
+
+**Multi-tenancy:** Tenant = empresa / Branch = sucursal. Tenant y Branch llegan al backend vía claims JWT (`tenant_id`, `branch_id` como BIGINT string). El controller los extrae de `User.FindFirstValue(...)` y los pasa al Request. `TenantClaimsMiddleware` los inyecta en `ITenantContextAccessor` para Serilog/OTel.
 
 **Capas y dirección de dependencias:**
 
 ```
 Domain
 Application    → Domain
-Infrastructure → Domain + Common
+Infrastructure → Application + Domain + Common
 WebApi         → Application + Common
 Host           → Application + Infrastructure + WebApi + Common
 Common         (transversal, sin lógica de negocio del proyecto)
@@ -32,33 +36,58 @@ Common         (transversal, sin lógica de negocio del proyecto)
 ```
 back-template/
 ├── Domain/
-│   ├── Entities/{Modulo}/
-│   └── Repositories/{Modulo}/
+│   ├── Entities/
+│   │   ├── Auth/RefreshToken.cs
+│   │   ├── Branches/Branch.cs
+│   │   ├── Tenants/Tenant.cs
+│   │   └── Users/User.cs
+│   └── Repositories/
+│       ├── Auth/IRefreshTokenRepository.cs
+│       └── Users/IUserRepository.cs
 ├── Application/
-│   ├── Dto/{Modulo}/
+│   ├── Dto/
+│   │   ├── Auth/TokenDto.cs
+│   │   └── Users/UserDto.cs
+│   ├── Services/
+│   │   ├── IJwtTokenService.cs
+│   │   └── IPasswordHasher.cs
 │   ├── UseCases/
-│   │   └── {Modulo}/{Accion}/
-│   │       ├── {Accion}Request.cs
-│   │       ├── {Accion}Handler.cs
-│   │       └── Responses/
-│   │           ├── {Accion}Response.cs      ← abstract record : IResponse
-│   │           ├── {Accion}Success.cs       ← sealed record : {Accion}Response, ISuccess<T>
-│   │           └── {Accion}Failure.cs       ← sealed record : {Accion}Response, INotFoundFailure (etc)
+│   │   ├── Auth/
+│   │   │   ├── Login/            ← LoginRequest, LoginHandler, Responses/
+│   │   │   └── RefreshToken/     ← RefreshTokenRequest, RefreshTokenHandler, Responses/
+│   │   └── Users/
+│   │       ├── GetUser/          ← GetUserRequest, GetUserHandler, Responses/
+│   │       ├── GetUsers/         ← GetUsersRequest, GetUsersHandler, Responses/
+│   │       ├── CreateUser/       ← CreateUserRequest, CreateUserHandler, Responses/
+│   │       ├── UpdateUser/       ← UpdateUserRequest, UpdateUserHandler, Responses/
+│   │       └── DisableUser/      ← DisableUserRequest, DisableUserHandler, Responses/
 │   └── ServiceCollectionEx.cs
 ├── Infrastructure/
 │   ├── PostgreSql/
 │   │   ├── MainDbConnection.cs              ← clase marcadora (clave ConnectionStrings)
 │   │   ├── MainDbConnectionFactory.cs       ← abre NpgsqlConnections
 │   │   └── MainDapperDbConnection.cs        ← ÚNICO punto de ejecución SQL
-│   ├── Persistence/SQLDB/Main/{Modulo}/{Entidad}Sql.cs
-│   ├── Repositories/{Modulo}/
+│   ├── Persistence/SQLDB/Main/
+│   │   ├── Auth/RefreshTokensSql.cs
+│   │   └── Users/UsersSql.cs
+│   ├── Repositories/
+│   │   ├── Auth/RefreshTokenRepository.cs
+│   │   └── Users/UserRepository.cs
+│   ├── Services/
+│   │   ├── JwtTokenService.cs               ← implementa IJwtTokenService
+│   │   └── PasswordHasher.cs                ← implementa IPasswordHasher (BCrypt)
 │   └── ServiceCollectionEx.cs
 ├── WebApi/
 │   ├── Base/BaseApiController.cs
-│   ├── EndPoints/{Modulo}/
-│   │   ├── {Modulo}Controller.cs
-│   │   ├── Presenters/{Accion}Presenter.cs
-│   │   └── RequestBodies/{Accion}Body.cs
+│   ├── EndPoints/
+│   │   ├── Auth/
+│   │   │   ├── AuthController.cs
+│   │   │   ├── Presenters/LoginPresenter.cs + RefreshTokenPresenter.cs
+│   │   │   └── RequestBodies/LoginBody.cs + RefreshTokenBody.cs
+│   │   └── Users/
+│   │       ├── UsersController.cs
+│   │       ├── Presenters/GetUserPresenter.cs + GetUsersPresenter.cs + CreateUserPresenter.cs + UpdateUserPresenter.cs + DisableUserPresenter.cs
+│   │       └── RequestBodies/CreateUserBody.cs + UpdateUserBody.cs
 │   └── ServiceCollectionEx.cs
 ├── Host/
 │   ├── Program.cs
@@ -67,6 +96,7 @@ back-template/
 │   │   ├── CorsExtensions.cs                ← AddLocalhostCors() + PolicyName
 │   │   ├── SwaggerExtensions.cs             ← AddSwaggerWithJwt()
 │   │   └── HealthExtensions.cs              ← AddHealthServices(config) + MapHealth()
+│   ├── Middleware/TenantClaimsMiddleware.cs  ← extrae tenant_id del JWT → ITenantContextAccessor
 │   ├── appsettings.json
 │   ├── appsettings.Local.json               ← dev diario, SQL text logging activo
 │   ├── appsettings.Development.json
@@ -90,13 +120,26 @@ back-template/
 | Driver | Npgsql 10 |
 | Mediator | Custom — `Common.Messaging` (NO MediatR NuGet) |
 | Auth | JWT Bearer HS256 |
-| Passwords | BCrypt.Net-Next |
+| Passwords | BCrypt.Net-Next (workFactor: 12) |
 | Logging | Serilog → Seq |
 | Tracing | OpenTelemetry OTLP → Jaeger |
 | Métricas | Prometheus en `/metrics` |
 | Health | `/api/health` |
 | Testing | xUnit |
 | Deploy | Docker multi-stage |
+
+---
+
+## Esquema de BD (módulos actuales)
+
+| Tabla | Descripción |
+|-------|-------------|
+| `dbo.Tenants` | 001-002 — Empresas SaaS |
+| `dbo.Branches` | 010-011 — Sucursales de un tenant |
+| `dbo.Users` | 020-021 — Usuarios con TenantId + BranchId FK |
+| `dbo.RefreshTokens` | 030-031 — Tokens de actualización JWT |
+
+**Numeración de migraciones:** bloques de 10 por entidad. Próxima entidad comienza en `040`.
 
 ---
 
@@ -127,19 +170,19 @@ Cada tabla tiene una clase `{Entidad}Sql` bajo `Infrastructure/Persistence/SQLDB
 - Retorna entidades de dominio directamente — sin Row classes intermedias.
 
 ```csharp
-public sealed class ExampleUsersSql
+public sealed class UsersSql
 {
     private readonly MainDapperDbConnection _db;
-    public ExampleUsersSql(MainDapperDbConnection db) => _db = db;
+    public UsersSql(MainDapperDbConnection db) => _db = db;
 
-    public Task<ExampleUser?> GetByPublicIdAsync(Guid publicId, CancellationToken ct = default) =>
-        _db.QuerySingleAsync<ExampleUser>(
+    public Task<User?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
+        _db.QuerySingleAsync<User>(
             """
-            SELECT Id, PublicId, FullName, Email, IsActive, CreatedAtUtc, UpdatedAtUtc
-            FROM dbo.ExampleUsers
-            WHERE PublicId = @publicId;
+            SELECT Id, PublicId, TenantId, BranchId, FullName, Email, Role, IsActive, CreatedAtUtc, UpdatedAtUtc
+            FROM dbo.Users
+            WHERE PublicId = @publicId AND TenantId = @tenantId AND IsActive = TRUE;
             """,
-            new { publicId },
+            new { publicId, tenantId },
             cancellationToken: ct);
 }
 ```
@@ -161,7 +204,7 @@ public sealed class ExampleUsersSql
 ```
 HTTP Request
     ↓
-{Modulo}Controller  →  _ = await Mediator.Send(new {Accion}Request(...), ct)
+{Modulo}Controller  →  var result = await Mediator.Send(new {Accion}Request(...), ct)
                                 ↓
                     {Accion}Handler.Handle(request, ct)
                         return new {Accion}Success(...) | new {Accion}Failure(...)
@@ -172,12 +215,14 @@ HTTP Request
                     {Accion}Presenter.Handle(response, ct)
                         _viewModel.Set(success) | _viewModel.OK(data) | _viewModel.Fail(msg)
                                 ↓
-Controller  →  _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(500, _viewModel)
+Controller  →  if (_viewModel.IsSuccess) return Ok(_viewModel);
+               return result is XxxNotFoundFailure ? NotFound(_viewModel) : StatusCode(500, _viewModel);
                                 ↓
 HTTP Response  (siempre ResultViewModel<TController> JSON)
 ```
 
-- El controller descarta el retorno de `Send` (`_ = await ...`) — la respuesta llega al presenter vía Publish.
+- El controller captura el `result` de `Send()` **solo** para determinar el HTTP status code.
+- Los datos de la respuesta siempre vienen del ViewModel (set por el Presenter).
 - **TODA** respuesta HTTP pasa por `ResultViewModel<TController>` — nunca retornar datos directos.
 - El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**.
 
@@ -185,31 +230,38 @@ HTTP Response  (siempre ResultViewModel<TController> JSON)
 
 ## Patrón de caso de uso
 
-### Request
+### Request (con contexto tenant)
 
 ```csharp
-public sealed record GetExampleUserRequest(Guid PublicId) : IRequest<GetExampleUserResponse>;
+public sealed record GetUserRequest(Guid PublicId, long TenantId) : IRequest<GetUserResponse>;
+```
+
+El controller extrae `TenantId` y `BranchId` directamente de los claims JWT:
+
+```csharp
+private long CurrentTenantId =>
+    long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
+private long CurrentBranchId =>
+    long.TryParse(User.FindFirstValue("branch_id"), out var id) ? id : 0;
 ```
 
 ### Responses
 
 ```csharp
 // Base — abstract, implementa IResponse de Common.Messaging
-public abstract record GetExampleUserResponse : IResponse;
+public abstract record GetUserResponse : IResponse;
 
 // Éxito con DTO único
-public sealed record GetExampleUserSuccess(ExampleUserDto Data)
-    : GetExampleUserResponse, ISuccess<ExampleUserDto>;
+public sealed record GetUserSuccess(UserDto Data) : GetUserResponse, ISuccess<UserDto>;
 
 // Éxito con datos custom (paginación, colecciones)
 // NUNCA implementar ISuccess<TSelf> con Data => this — referencia circular en JSON
-public sealed record GetExampleUsersSuccess(
-    IReadOnlyCollection<ExampleUserDto> Users, int Total, int Page, int PageSize)
-    : GetExampleUsersResponse, ISuccess;
+public sealed record GetUsersSuccess(
+    IReadOnlyCollection<UserDto> Users, int Total, int Page, int PageSize)
+    : GetUsersResponse, ISuccess;
 
 // Fallo
-public sealed record GetExampleUserNotFoundFailure(string Message)
-    : GetExampleUserResponse, INotFoundFailure;
+public sealed record GetUserNotFoundFailure(string Message) : GetUserResponse, INotFoundFailure;
 ```
 
 **Interfaces de resultado (`Common.Results`):**
@@ -226,19 +278,17 @@ public sealed record GetExampleUserNotFoundFailure(string Message)
 ### Handler
 
 ```csharp
-public sealed class GetExampleUserHandler
-    : IRequestHandler<GetExampleUserRequest, GetExampleUserResponse>
+public sealed class GetUserHandler : IRequestHandler<GetUserRequest, GetUserResponse>
 {
-    private readonly IExampleUserRepository _repo;
-    public GetExampleUserHandler(IExampleUserRepository repo) => _repo = repo;
+    private readonly IUserRepository _users;
+    public GetUserHandler(IUserRepository users) => _users = users;
 
-    public async Task<GetExampleUserResponse> Handle(
-        GetExampleUserRequest request, CancellationToken cancellationToken)
+    public async Task<GetUserResponse> Handle(GetUserRequest request, CancellationToken cancellationToken)
     {
-        var user = await _repo.GetByPublicIdAsync(request.PublicId, cancellationToken);
+        var user = await _users.GetByPublicIdAsync(request.PublicId, request.TenantId, cancellationToken);
         if (user is null)
-            return new GetExampleUserNotFoundFailure("Usuario no encontrado.");
-        return new GetExampleUserSuccess(new ExampleUserDto(...));
+            return new GetUserNotFoundFailure("Usuario no encontrado.");
+        return new GetUserSuccess(new UserDto(...));
     }
 }
 ```
@@ -247,24 +297,24 @@ public sealed class GetExampleUserHandler
 
 ```csharp
 // Variante A — success implementa ISuccess<TDto> → _viewModel.Set(success)
-public sealed class GetExampleUserPresenter : IPresenter<GetExampleUserResponse>
+public sealed class GetUserPresenter : INotificationHandler<GetUserResponse>
 {
-    private readonly ResultViewModel<ExampleUsersController> _viewModel;
-    public GetExampleUserPresenter(ResultViewModel<ExampleUsersController> viewModel)
+    private readonly ResultViewModel<UsersController> _viewModel;
+    public GetUserPresenter(ResultViewModel<UsersController> viewModel)
         => _viewModel = viewModel;
 
-    public Task Handle(GetExampleUserResponse notification, CancellationToken cancellationToken)
+    public Task Handle(GetUserResponse notification, CancellationToken cancellationToken)
     {
         if (notification is IFailure failure)
             _viewModel.Fail(failure.Message);
-        else if (notification is ISuccess<ExampleUserDto> success)
+        else if (notification is ISuccess<UserDto> success)
             _viewModel.Set(success);
         return Task.CompletedTask;
     }
 }
 
 // Variante B — success implementa ISuccess (sin genérico) → _viewModel.OK(success)
-// else if (notification is GetExampleUsersSuccess success)
+// else if (notification is GetUsersSuccess success)
 //     _viewModel.OK(success);
 ```
 
@@ -279,33 +329,39 @@ public sealed class GetExampleUserPresenter : IPresenter<GetExampleUserResponse>
 ### Controller
 
 ```csharp
-[Route("api/example/users")]
+[Route("api/users")]
 [Authorize]
-public sealed class ExampleUsersController : BaseApiController
+public sealed class UsersController : BaseApiController
 {
-    private readonly ILogger<ExampleUsersController> _logger;
-    private readonly ResultViewModel<ExampleUsersController> _viewModel;
+    private readonly ILogger<UsersController>        _logger;
+    private readonly ResultViewModel<UsersController> _viewModel;
 
-    public ExampleUsersController(
+    public UsersController(
         IMediator mediator,
-        ILogger<ExampleUsersController> logger,
-        ResultViewModel<ExampleUsersController> viewModel) : base(mediator)
+        ILogger<UsersController> logger,
+        ResultViewModel<UsersController> viewModel) : base(mediator)
     { _logger = logger; _viewModel = viewModel; }
+
+    private long CurrentTenantId =>
+        long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct = default)
     {
         try
         {
-            _ = await Mediator.Send(new GetExampleUserRequest(id), ct);
-            return _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(500, _viewModel);
+            var result = await Mediator.Send(new GetUserRequest(id, CurrentTenantId), ct);
+            if (_viewModel.IsSuccess) return Ok(_viewModel);
+            return result is GetUserNotFoundFailure
+                ? NotFound(_viewModel)
+                : StatusCode(500, _viewModel);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error en GetById");
-            var innerEx = ex;
-            while (innerEx.InnerException != null) innerEx = innerEx.InnerException!;
-            return StatusCode(500, _viewModel.Fail(innerEx.Message));
+            _logger.LogError(ex, "Error en GetById User");
+            var inner = ex;
+            while (inner.InnerException != null) inner = inner.InnerException!;
+            return StatusCode(500, _viewModel.Fail(inner.Message));
         }
     }
 }
@@ -315,8 +371,38 @@ public sealed class ExampleUsersController : BaseApiController
 
 ```csharp
 services.AddScoped(typeof(ResultViewModel<>));
-services.AddScoped<INotificationHandler<GetExampleUserResponse>, GetExampleUserPresenter>();
+services.AddScoped<INotificationHandler<GetUserResponse>, GetUserPresenter>();
 // Un registro por abstract response
+```
+
+---
+
+## Servicios de dominio (Application.Services)
+
+| Interfaz | Implementación | Descripción |
+|----------|---------------|-------------|
+| `IJwtTokenService` | `Infrastructure/Services/JwtTokenService.cs` | Genera access token (HS256) + refresh token |
+| `IPasswordHasher` | `Infrastructure/Services/PasswordHasher.cs` | Hash/Verify con BCrypt (workFactor: 12) |
+
+**Claims del JWT:**
+
+| Claim | Valor |
+|-------|-------|
+| `sub` | user.PublicId (UUID) |
+| `email` | user.Email |
+| `role` | user.Role ("Admin" / "User") |
+| `tenant_id` | user.TenantId (long como string) |
+| `branch_id` | user.BranchId (long como string) |
+
+**Config necesaria en appsettings:**
+```json
+"Jwt": {
+  "Key": "...",
+  "Issuer": "...",
+  "Audience": "...",
+  "ExpirationMinutes": 60,
+  "RefreshTokenExpiryDays": 30
+}
 ```
 
 ---
@@ -325,18 +411,18 @@ services.AddScoped<INotificationHandler<GetExampleUserResponse>, GetExampleUserP
 
 | Tipo | Patrón | Ejemplo |
 |------|--------|---------|
-| Request | `{Accion}Request` | `GetExampleUserRequest` |
-| Handler | `{Accion}Handler` | `GetExampleUserHandler` |
-| Response base | `{Accion}Response` | `GetExampleUserResponse` |
-| Éxito | `{Accion}Success` | `GetExampleUserSuccess` |
-| Fallo | `{Accion}{Tipo}Failure` | `GetExampleUserNotFoundFailure` |
-| Presenter | `{Accion}Presenter` | `GetExampleUserPresenter` |
-| Request body | `{Accion}Body` | `InsertExampleUserBody` |
-| Controller | `{Modulo}Controller` | `ExampleUsersController` |
-| SQL object | `{Entidad}Sql` | `ExampleUsersSql` |
+| Request | `{Accion}Request` | `GetUserRequest` |
+| Handler | `{Accion}Handler` | `GetUserHandler` |
+| Response base | `{Accion}Response` | `GetUserResponse` |
+| Éxito | `{Accion}Success` | `GetUserSuccess` |
+| Fallo | `{Accion}{Tipo}Failure` | `GetUserNotFoundFailure` |
+| Presenter | `{Accion}Presenter` | `GetUserPresenter` |
+| Request body | `{Accion}Body` | `CreateUserBody` |
+| Controller | `{Modulo}Controller` | `UsersController` |
+| SQL object | `{Entidad}Sql` | `UsersSql` |
 | Clase marcadora BD | `{Nombre}DbConnection` | `MainDbConnection` |
-| Repositorio interfaz | `I{Entidad}Repository` | `IExampleUserRepository` |
-| DTO | `{Entidad}Dto` | `ExampleUserDto` |
+| Repositorio interfaz | `I{Entidad}Repository` | `IUserRepository` |
+| DTO | `{Entidad}Dto` | `UserDto` |
 
 ---
 
@@ -344,14 +430,14 @@ services.AddScoped<INotificationHandler<GetExampleUserResponse>, GetExampleUserP
 
 Viven en `Host/Services/Schema Migration/Tables/`. Se ejecutan automáticamente al iniciar.
 
-**Numeración:** 3 dígitos, orden secuencial. Cada entidad suele ocupar 2 archivos.
+**Numeración:** 3 dígitos, bloques de 10 por entidad.
 
 ```
 NNN_<tabla>.sql            — CREATE TABLE IF NOT EXISTS
 NNN+1_<tabla>_indexes.sql  — índices
 ```
 
-Ejemplo: `001_example_users.sql`, `002_example_users_indexes.sql`. La siguiente entidad empieza en `010`, la siguiente en `020`, etc. (bloques de 10 por entidad).
+Bloques actuales: Tenants=001, Branches=010, Users=020, RefreshTokens=030. **Próxima entidad: 040.**
 
 **Reglas absolutas:**
 - Todos los archivos son idempotentes: `CREATE TABLE IF NOT EXISTS`.
@@ -366,15 +452,15 @@ Ejemplo: `001_example_users.sql`, `002_example_users_indexes.sql`. La siguiente 
 | Archivo | Responsabilidad |
 |---------|----------------|
 | `Application/ServiceCollectionEx.cs` | `AddApplicationServices()` — mediator + handlers |
-| `Infrastructure/ServiceCollectionEx.cs` | `AddInfrastructureServices(config)` — factories, `...Sql`, repositorios |
+| `Infrastructure/ServiceCollectionEx.cs` | `AddInfrastructureServices(config)` — factories, SQL objects, repositorios, servicios de dominio, ITenantContextAccessor |
 | `WebApi/ServiceCollectionEx.cs` | `AddWebApiServices()` — `ResultViewModel<>`, presenters, controllers |
 | `Host/Extensions/JwtAuthExtensions.cs` | `AddJwtAuthentication(config)` — JWT HS256 |
 | `Host/Extensions/CorsExtensions.cs` | `AddLocalhostCors()` — CORS localhost:\* |
 | `Host/Extensions/SwaggerExtensions.cs` | `AddSwaggerWithJwt()` — Swagger + Bearer UI |
 | `Host/Extensions/HealthExtensions.cs` | `AddHealthServices(config)` + `MapHealth()` — `/api/health` |
-| `Host/Program.cs` | Composición final: llama todos los `Add*` y configura middleware/endpoints |
+| `Host/Program.cs` | Composición final + `UseMiddleware<TenantClaimsMiddleware>()` |
 
-Lifetimes: `MainDbConnectionFactory` → Singleton. `MainDapperDbConnection`, `...Sql`, repositorios, presenters, `ResultViewModel<>` → Scoped.
+Lifetimes: `MainDbConnectionFactory`, `ITenantContextAccessor` → Singleton. `MainDapperDbConnection`, `...Sql`, repositorios, servicios, presenters, `ResultViewModel<>` → Scoped.
 
 ---
 
@@ -382,6 +468,9 @@ Lifetimes: `MainDbConnectionFactory` → Singleton. `MainDapperDbConnection`, `.
 
 - JWT HS256: `Jwt:Key` (≥ 32 chars), `Jwt:Issuer`, `Jwt:Audience` desde config / variables de entorno.
 - Registrado en `Host/Extensions/JwtAuthExtensions.cs`.
+- Login: `POST /api/auth/login` → `{ accessToken, refreshToken, expiresAtUtc }`.
+- Refresh: `POST /api/auth/refresh` → nuevo par de tokens.
+- Roles: `[Authorize(Roles = "Admin")]` para endpoints de escritura en Users.
 - Nunca poner secretos JWT en `appsettings*.json` — usar variables de entorno en producción.
 
 ---

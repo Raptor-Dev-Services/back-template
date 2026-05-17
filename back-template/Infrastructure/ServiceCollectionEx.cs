@@ -1,8 +1,14 @@
+using Application.Services;
 using Common.Data;
-using Domain.Repositories.Example;
-using Infrastructure.Persistence.SQLDB.Main.Example;
+using Common.MultiTenancy;
+using Domain.Repositories.Auth;
+using Domain.Repositories.Users;
+using Infrastructure.Persistence.SQLDB.Main.Auth;
+using Infrastructure.Persistence.SQLDB.Main.Users;
 using Infrastructure.PostgreSql;
-using Infrastructure.Repositories.Example;
+using Infrastructure.Repositories.Auth;
+using Infrastructure.Repositories.Users;
+using Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -21,13 +27,25 @@ public static class ServiceCollectionEx
     /// <returns>La misma <paramref name="services"/> para encadenamiento.</returns>
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Conexión a BD
         services.AddSingleton<MainDbConnectionFactory>();
         services.AddSingleton<IOpenDbConnectionFactory>(sp => sp.GetRequiredService<MainDbConnectionFactory>());
         services.AddScoped<MainDapperDbConnection>();
 
-        services.AddScoped<ExampleUsersSql>();
+        // Multi-tenancy context (Singleton — AsyncLocal por thread)
+        services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
 
-        services.AddScoped<IExampleUserRepository, ExampleUserRepository>();
+        // SQL objects
+        services.AddScoped<UsersSql>();
+        services.AddScoped<RefreshTokensSql>();
+
+        // Repositorios
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+
+        // Servicios de dominio
+        services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<IPasswordHasher, PasswordHasher>();
 
         return services;
     }

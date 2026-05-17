@@ -1,13 +1,16 @@
-using Application.UseCases.Example.DisableExampleUser;
-using Application.UseCases.Example.GetExampleUser;
-using Application.UseCases.Example.GetExampleUsers;
-using Application.UseCases.Example.InsertExampleUser;
-using Application.UseCases.Example.UpdateExampleUser;
+using Application.UseCases.Auth.Login.Responses;
+using Application.UseCases.Auth.RefreshToken.Responses;
+using Application.UseCases.Users.CreateUser.Responses;
+using Application.UseCases.Users.DisableUser.Responses;
+using Application.UseCases.Users.GetUser.Responses;
+using Application.UseCases.Users.GetUsers.Responses;
+using Application.UseCases.Users.UpdateUser.Responses;
 using Common.Messaging;
 using Common.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
-using WebApi.EndPoints.Example.Presenters;
+using WebApi.EndPoints.Auth.Presenters;
+using WebApi.EndPoints.Users.Presenters;
 
 namespace WebApi;
 
@@ -25,11 +28,16 @@ public static class ServiceCollectionEx
     {
         services.AddScoped(typeof(ResultViewModel<>));
 
-        services.AddScoped<INotificationHandler<GetExampleUserResponse>,  GetExampleUserPresenter>();
-        services.AddScoped<INotificationHandler<GetExampleUsersResponse>, GetExampleUsersPresenter>();
-        services.AddScoped<INotificationHandler<InsertExampleUserResponse>, InsertExampleUserPresenter>();
-        services.AddScoped<INotificationHandler<UpdateExampleUserResponse>, UpdateExampleUserPresenter>();
-        services.AddScoped<INotificationHandler<DisableExampleUserResponse>, DisableExampleUserPresenter>();
+        // Auth presenters
+        services.AddScoped<INotificationHandler<LoginResponse>,        LoginPresenter>();
+        services.AddScoped<INotificationHandler<RefreshTokenResponse>, RefreshTokenPresenter>();
+
+        // Users presenters
+        services.AddScoped<INotificationHandler<GetUserResponse>,     GetUserPresenter>();
+        services.AddScoped<INotificationHandler<GetUsersResponse>,    GetUsersPresenter>();
+        services.AddScoped<INotificationHandler<CreateUserResponse>,  CreateUserPresenter>();
+        services.AddScoped<INotificationHandler<UpdateUserResponse>,  UpdateUserPresenter>();
+        services.AddScoped<INotificationHandler<DisableUserResponse>, DisableUserPresenter>();
 
         return services
             .AddControllers()
