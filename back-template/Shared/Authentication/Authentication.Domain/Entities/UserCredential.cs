@@ -5,7 +5,6 @@ public sealed class UserCredential
     public long     Id           { get; init; }
     public Guid     PublicId     { get; init; }
     public long     TenantId     { get; init; }
-    public long     BranchId     { get; init; }
     public string   Email        { get; init; } = string.Empty;
     public string   PasswordHash { get; init; } = string.Empty;
     public string   Role         { get; init; } = string.Empty;

@@ -5,7 +5,6 @@ using Common.Logging;
 using Common.Messaging;
 using Common.MultiTenancy;
 using Common.Observability;
-using Common.PostgreSql;
 using Common.Web;
 using Host.Api.Extensions;
 using Host.Api.Middleware;
@@ -22,11 +21,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddLoggingServices(builder.Configuration);
 builder.Services.AddObservability(builder.Configuration);
 
-// Shared DB infrastructure
-builder.Services.AddMainDatabase();
-
 // Multi-tenancy
-builder.Services.AddSingleton<Common.MultiTenancy.ITenantContextAccessor, Common.MultiTenancy.TenantContextAccessor>();
+builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
+
+// Database — EF Core + schema initialization
+builder.Services.AddMainDatabase(builder.Configuration);
 
 // Mediator — single call with all Application assemblies
 builder.Services.AddMediator(
@@ -51,7 +50,6 @@ builder.Services.AddAuthenticationInfrastructureServices(builder.Configuration);
 builder.Services.AddAuthenticationWebApiServices();
 
 // Infrastructure
-builder.Services.AddSchemaMigrations();
 builder.Services.AddHealthServices(builder.Configuration);
 
 // Auth & API

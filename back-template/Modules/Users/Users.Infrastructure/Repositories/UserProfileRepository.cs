@@ -1,30 +1,68 @@
+using Microsoft.EntityFrameworkCore;
+using Shared.Database;
 using Users.Domain.Entities;
 using Users.Domain.Repositories;
-using Users.Infrastructure.Persistence.SQLDB;
 
 namespace Users.Infrastructure.Repositories;
 
 public sealed class UserProfileRepository : IUserProfileRepository
 {
-    private readonly UserProfilesSql _sql;
+    private readonly AppDbContext _db;
 
-    public UserProfileRepository(UserProfilesSql sql) => _sql = sql;
+    public UserProfileRepository(AppDbContext db) => _db = db;
 
     public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken cancellationToken = default) =>
-        _sql.GetByPublicIdAsync(publicId, tenantId, cancellationToken);
+        _db.UserProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, cancellationToken);
 
     public async Task<IReadOnlyCollection<UserProfile>> GetPagedAsync(long tenantId, int page, int pageSize, CancellationToken cancellationToken = default) =>
-        (await _sql.GetPagedAsync(tenantId, page, pageSize, cancellationToken)).ToArray();
+        await _db.UserProfiles
+            .AsNoTracking()
+            .Where(e => e.IsActive)
+            .OrderByDescending(e => e.CreatedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToArrayAsync(cancellationToken);
 
     public Task<int> GetCountAsync(long tenantId, CancellationToken cancellationToken = default) =>
-        _sql.GetCountAsync(tenantId, cancellationToken);
+        _db.UserProfiles
+            .CountAsync(e => e.IsActive, cancellationToken);
 
-    public Task InsertAsync(Guid publicId, long tenantId, long branchId, string fullName, CancellationToken cancellationToken = default) =>
-        _sql.InsertAsync(publicId, tenantId, branchId, fullName, cancellationToken);
+    public async Task InsertAsync(Guid publicId, long tenantId, string fullName, CancellationToken cancellationToken = default)
+    {
+        var profile = new UserProfile
+        {
+            PublicId = publicId,
+            TenantId = tenantId,
+            FullName = fullName,
+        };
 
-    public async Task<bool> UpdateAsync(Guid publicId, long tenantId, string fullName, CancellationToken cancellationToken = default) =>
-        await _sql.UpdateAsync(publicId, tenantId, fullName, cancellationToken) > 0;
+        _db.UserProfiles.Add(profile);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
 
-    public async Task<bool> DisableAsync(Guid publicId, long tenantId, CancellationToken cancellationToken = default) =>
-        await _sql.DisableAsync(publicId, tenantId, cancellationToken) > 0;
+    public async Task<bool> UpdateAsync(Guid publicId, long tenantId, string fullName, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.UserProfiles
+            .Where(e => e.PublicId == publicId && e.IsActive)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.FullName,     fullName)
+                .SetProperty(e => e.UpdatedAtUtc, DateTime.UtcNow),
+                cancellationToken);
+
+        return rows > 0;
+    }
+
+    public async Task<bool> DisableAsync(Guid publicId, long tenantId, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.UserProfiles
+            .Where(e => e.PublicId == publicId && e.IsActive)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.IsActive,     false)
+                .SetProperty(e => e.UpdatedAtUtc, DateTime.UtcNow),
+                cancellationToken);
+
+        return rows > 0;
+    }
 }

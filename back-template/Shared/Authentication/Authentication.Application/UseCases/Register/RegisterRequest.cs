@@ -7,6 +7,5 @@ public sealed record RegisterRequest(
     string Email,
     string Password,
     long   TenantId,
-    long   BranchId,
     string FullName,
     string Role) : IRequest<RegisterResponse>;

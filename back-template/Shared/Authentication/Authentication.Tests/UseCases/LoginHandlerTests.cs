@@ -10,7 +10,7 @@ namespace Authentication.Tests.UseCases;
 
 public sealed class LoginHandlerTests
 {
-    private readonly IUserCredentialRepository _credentials  = Substitute.For<IUserCredentialRepository>();
+    private readonly IUserCredentialRepository _credentials   = Substitute.For<IUserCredentialRepository>();
     private readonly IRefreshTokenRepository   _refreshTokens = Substitute.For<IRefreshTokenRepository>();
     private readonly IPasswordHasher           _hasher        = Substitute.For<IPasswordHasher>();
     private readonly IJwtTokenService          _jwt           = Substitute.For<IJwtTokenService>();
@@ -32,7 +32,7 @@ public sealed class LoginHandlerTests
     {
         var credential = new UserCredential
         {
-            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1, BranchId = 1,
+            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1,
             Email = "user@test.com", PasswordHash = "hash", Role = "User", IsActive = true
         };
         _credentials.GetForLoginAsync("user@test.com", Arg.Any<CancellationToken>()).Returns(credential);
@@ -49,12 +49,12 @@ public sealed class LoginHandlerTests
     {
         var credential = new UserCredential
         {
-            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1, BranchId = 1,
+            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1,
             Email = "user@test.com", PasswordHash = "hash", Role = "User", IsActive = true
         };
         _credentials.GetForLoginAsync("user@test.com", Arg.Any<CancellationToken>()).Returns(credential);
         _hasher.Verify("password", "hash").Returns(true);
-        _jwt.GenerateAccessToken(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>(), Arg.Any<long>())
+        _jwt.GenerateAccessToken(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>())
             .Returns("access-token");
         _jwt.GenerateRefreshToken().Returns("refresh-token");
         _jwt.GetRefreshTokenExpiry().Returns(DateTime.UtcNow.AddDays(7));

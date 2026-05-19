@@ -32,7 +32,7 @@ public sealed class LoginHandler : IRequestHandler<LoginRequest, LoginResponse>
         if (credential is null || !_hasher.Verify(request.Password, credential.PasswordHash) || !credential.IsActive)
             return new LoginInvalidCredentialsFailure("Credenciales inválidas.");
 
-        var accessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId, credential.BranchId);
+        var accessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId);
         var refreshToken = _jwt.GenerateRefreshToken();
         var expiry       = _jwt.GetRefreshTokenExpiry();
 

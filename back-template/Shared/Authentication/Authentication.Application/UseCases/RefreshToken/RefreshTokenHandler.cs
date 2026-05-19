@@ -35,7 +35,7 @@ public sealed class RefreshTokenHandler : IRequestHandler<RefreshTokenRequest, R
 
         await _refreshTokens.RevokeAsync(request.Token, cancellationToken);
 
-        var newAccessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId, credential.BranchId);
+        var newAccessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId);
         var newRefreshToken = _jwt.GenerateRefreshToken();
         var expiry          = _jwt.GetRefreshTokenExpiry();
 

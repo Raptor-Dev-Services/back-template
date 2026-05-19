@@ -14,7 +14,7 @@ public sealed class JwtTokenService : IJwtTokenService
 
     public JwtTokenService(IConfiguration config) => _config = config;
 
-    public string GenerateAccessToken(Guid userPublicId, string email, string role, long tenantId, long branchId)
+    public string GenerateAccessToken(Guid userPublicId, string email, string role, long tenantId)
     {
         var key    = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
         var creds  = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -27,7 +27,6 @@ public sealed class JwtTokenService : IJwtTokenService
             new Claim(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString()),
             new Claim(ClaimTypes.Role,               role),
             new Claim("tenant_id",                   tenantId.ToString()),
-            new Claim("branch_id",                   branchId.ToString()),
         };
 
         var token = new JwtSecurityToken(

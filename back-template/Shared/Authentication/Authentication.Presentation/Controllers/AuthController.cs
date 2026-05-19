@@ -56,7 +56,7 @@ public sealed class AuthController : BaseApiController
         try
         {
             var result = await Mediator.Send(
-                new RegisterRequest(body.Email, body.Password, body.TenantId, body.BranchId, body.FullName, body.Role), ct);
+                new RegisterRequest(body.Email, body.Password, body.TenantId, body.FullName, body.Role), ct);
             if (_viewModel.IsSuccess) return Ok(_viewModel);
             if (result is RegisterEmailConflictFailure) return Conflict(_viewModel);
             if (result is RegisterTenantNotFoundFailure) return NotFound(_viewModel);

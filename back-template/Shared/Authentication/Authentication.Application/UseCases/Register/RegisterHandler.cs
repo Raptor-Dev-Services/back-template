@@ -45,19 +45,17 @@ public sealed class RegisterHandler : IRequestHandler<RegisterRequest, RegisterR
 
         var hash       = _hasher.Hash(request.Password);
         var credential = await _credentials.InsertAsync(
-            request.TenantId, request.BranchId, request.Email, hash, request.Role,
+            request.TenantId, request.Email, hash, request.Role,
             cancellationToken);
 
-        // Notify Users module — creates UserProfile synchronously via in-process mediator
         await _mediator.Publish(new UserShouldBeCreatedIntegrationEvent(
             credential.PublicId,
             credential.TenantId,
-            credential.BranchId,
             request.FullName,
             credential.Email,
             credential.Role), cancellationToken);
 
-        var accessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId, credential.BranchId);
+        var accessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId);
         var refreshToken = _jwt.GenerateRefreshToken();
         var expiry       = _jwt.GetRefreshTokenExpiry();
 
