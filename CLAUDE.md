@@ -2,32 +2,30 @@
 
 ## Propósito
 
-Guía de referencia para Claude Code al trabajar en este repositorio (`back-template`).
-
-Este documento describe la arquitectura, convenciones y reglas que deben respetarse en todo cambio, generación o revisión de código.
+Guía de referencia para Claude Code al trabajar en `back-template`.
+Describe la arquitectura, convenciones y reglas que deben respetarse en todo cambio, generación o revisión de código.
 
 ---
 
-## Arquitectura
+## Arquitectura — Monolito Modular + Clean Architecture
 
-**Patrón:** Clean Architecture + CQRS + Mediator + Presenter — **Monolito Modular**
+**Patrón:** Modular Monolith + Clean Architecture + CQRS + Mediator + Presenter
 
-**Módulos actuales:** `Auth` (Login + RefreshToken) · `Users` (CRUD)
+Cada módulo funcional se compone de **6 proyectos `.csproj` independientes**. Los límites de módulo se refuerzan en tiempo de compilación.
 
-**Multi-tenancy:** Tenant = empresa / Branch = sucursal. Tenant y Branch llegan al backend vía claims JWT (`tenant_id`, `branch_id` como BIGINT string). El controller los extrae de `User.FindFirstValue(...)` y los pasa al Request. `TenantClaimsMiddleware` los inyecta en `ITenantContextAccessor` para Serilog/OTel.
-
-**Capas y dirección de dependencias:**
+**Dirección de dependencias dentro de un módulo:**
 
 ```
-Domain
-Application    → Domain
-Infrastructure → Application + Domain + Common
-WebApi         → Application + Common
-Host           → Application + Infrastructure + WebApi + Common
-Common         (transversal, sin lógica de negocio del proyecto)
+Domain           → (sin dependencias externas)
+Contracts        → (sin dependencias externas — solo tipos POCO públicos)
+Application      → Common + Domain + Contracts
+Infrastructure   → Common + Domain + Shared.Database   (NO referencia Application)
+Presentation     → Common + Application + Shared.Web   (NO referencia Infrastructure)
+Tests            → Domain + Application + Infrastructure + Presentation
+Host.Api         → Application + Infrastructure + Presentation (por cada módulo)
 ```
 
-**Regla absoluta:** las dependencias apuntan hacia adentro. `Application` nunca referencia `Infrastructure`. `WebApi` nunca accede a PostgreSQL directamente.
+**Regla absoluta:** `Application` nunca referencia `Infrastructure`. `Infrastructure` nunca referencia `Application`. Los módulos nunca se referencian entre sí — la comunicación pasa por `{Modulo}.Contracts`.
 
 ---
 
@@ -35,76 +33,43 @@ Common         (transversal, sin lógica de negocio del proyecto)
 
 ```
 back-template/
-├── Domain/
-│   ├── Entities/
-│   │   ├── Auth/RefreshToken.cs
-│   │   ├── Branches/Branch.cs
-│   │   ├── Tenants/Tenant.cs
-│   │   └── Users/User.cs
-│   └── Repositories/
-│       ├── Auth/IRefreshTokenRepository.cs
-│       └── Users/IUserRepository.cs
-├── Application/
-│   ├── Dto/
-│   │   ├── Auth/TokenDto.cs
-│   │   └── Users/UserDto.cs
-│   ├── Services/
-│   │   ├── IJwtTokenService.cs
-│   │   └── IPasswordHasher.cs
-│   ├── UseCases/
-│   │   ├── Auth/
-│   │   │   ├── Login/            ← LoginRequest, LoginHandler, Responses/
-│   │   │   └── RefreshToken/     ← RefreshTokenRequest, RefreshTokenHandler, Responses/
-│   │   └── Users/
-│   │       ├── GetUser/          ← GetUserRequest, GetUserHandler, Responses/
-│   │       ├── GetUsers/         ← GetUsersRequest, GetUsersHandler, Responses/
-│   │       ├── CreateUser/       ← CreateUserRequest, CreateUserHandler, Responses/
-│   │       ├── UpdateUser/       ← UpdateUserRequest, UpdateUserHandler, Responses/
-│   │       └── DisableUser/      ← DisableUserRequest, DisableUserHandler, Responses/
-│   └── ServiceCollectionEx.cs
-├── Infrastructure/
-│   ├── PostgreSql/
-│   │   ├── MainDbConnection.cs              ← clase marcadora (clave ConnectionStrings)
-│   │   ├── MainDbConnectionFactory.cs       ← abre NpgsqlConnections
-│   │   └── MainDapperDbConnection.cs        ← ÚNICO punto de ejecución SQL
-│   ├── Persistence/SQLDB/Main/
-│   │   ├── Auth/RefreshTokensSql.cs
-│   │   └── Users/UsersSql.cs
-│   ├── Repositories/
-│   │   ├── Auth/RefreshTokenRepository.cs
-│   │   └── Users/UserRepository.cs
-│   ├── Services/
-│   │   ├── JwtTokenService.cs               ← implementa IJwtTokenService
-│   │   └── PasswordHasher.cs                ← implementa IPasswordHasher (BCrypt)
-│   └── ServiceCollectionEx.cs
-├── WebApi/
-│   ├── Base/BaseApiController.cs
-│   ├── EndPoints/
-│   │   ├── Auth/
-│   │   │   ├── AuthController.cs
-│   │   │   ├── Presenters/LoginPresenter.cs + RefreshTokenPresenter.cs
-│   │   │   └── RequestBodies/LoginBody.cs + RefreshTokenBody.cs
-│   │   └── Users/
-│   │       ├── UsersController.cs
-│   │       ├── Presenters/GetUserPresenter.cs + GetUsersPresenter.cs + CreateUserPresenter.cs + UpdateUserPresenter.cs + DisableUserPresenter.cs
-│   │       └── RequestBodies/CreateUserBody.cs + UpdateUserBody.cs
-│   └── ServiceCollectionEx.cs
-├── Host/
-│   ├── Program.cs
-│   ├── Extensions/
-│   │   ├── JwtAuthExtensions.cs             ← AddJwtAuthentication(config)
-│   │   ├── CorsExtensions.cs                ← AddLocalhostCors() + PolicyName
-│   │   ├── SwaggerExtensions.cs             ← AddSwaggerWithJwt()
-│   │   └── HealthExtensions.cs              ← AddHealthServices(config) + MapHealth()
-│   ├── Middleware/TenantClaimsMiddleware.cs  ← extrae tenant_id del JWT → ITenantContextAccessor
-│   ├── appsettings.json
-│   ├── appsettings.Local.json               ← dev diario, SQL text logging activo
-│   ├── appsettings.Development.json
-│   ├── appsettings.Staging.json
-│   ├── appsettings.Production.json
-│   └── Services/Schema Migration/Tables/*.sql
-├── Tests/
-└── Common/   (submódulo — NO editar desde este repo)
+├── Common/                                          → Submódulo Git (NO editar)
+├── Shared/
+│   ├── Database/                                    → Infraestructura DB compartida (sin ASP.NET)
+│   │   ├── MainDbConnection.cs                      ← Marcador BD principal
+│   │   ├── ReadonlyDbConnection.cs                  ← Marcador BD secundaria (ejemplo)
+│   │   ├── DbConnectionFactory.cs                   ← Factory genérica open-generic
+│   │   ├── DapperDbConnection.cs                    ← Conexión genérica open-generic
+│   │   └── ServiceCollectionEx.cs                   → AddMainDatabase()
+│   └── Web/                                         → Infraestructura web compartida (con ASP.NET)
+│       └── BaseApiController.cs                     → namespace Shared.Web
+├── Modules/
+│   ├── Tenancy/                                     → Módulo Tenancy (Tenant + Branch)
+│   │   ├── Tenancy.Contracts/                       → DTOs + Integration Events (POCO, sin deps)
+│   │   ├── Tenancy.Domain/                          → Entidades + interfaces de repositorio
+│   │   ├── Tenancy.Application/                     → Use cases (TenancyApi)
+│   │   ├── Tenancy.Infrastructure/                  → SQL objects + repositorios
+│   │   ├── Tenancy.Presentation/                    → Controllers + ServiceCollectionEx
+│   │   └── Tenancy.Tests/                           → Tests arquitectura + unitarios
+│   └── Users/                                       → Módulo Users (perfiles de usuario)
+│       ├── Users.Contracts/                         → UserProfileDto + Integration Events
+│       ├── Users.Domain/                            → UserProfile entity + IUserProfileRepository
+│       ├── Users.Application/                       → GetUserProfile, GetUserProfiles, Update, Disable
+│       ├── Users.Infrastructure/                    → UserProfilesSql + UserProfileRepository
+│       ├── Users.Presentation/                      → UsersController + 4 Presenters
+│       └── Users.Tests/                             → Tests arquitectura (7) + unitarios (2)
+├── Shared/Authentication/                           → Módulo compartido Auth
+│   ├── Authentication.Contracts/                    → TokenDto + UserShouldBeCreatedIntegrationEvent
+│   ├── Authentication.Domain/                       → UserCredential + RefreshToken entities
+│   ├── Authentication.Application/                  → Login + Register + RefreshToken handlers
+│   ├── Authentication.Infrastructure/               → CredentialsSql + RefreshTokensSql + JWT + BCrypt
+│   ├── Authentication.Presentation/                 → AuthController + 3 Presenters
+│   └── Authentication.Tests/                        → Tests arquitectura (7) + unitarios (3)
+└── Host.Api/                                        → Punto de entrada — Program.cs
+    ├── Extensions/                                  → JWT, CORS, Swagger, Health
+    ├── Middleware/TenantClaimsMiddleware.cs          → Extrae tenant_id del JWT
+    ├── Services/Schema Migration/Tables/*.sql        → Migraciones automáticas al startup
+    └── appsettings.*.json
 ```
 
 ---
@@ -125,61 +90,57 @@ back-template/
 | Tracing | OpenTelemetry OTLP → Jaeger |
 | Métricas | Prometheus en `/metrics` |
 | Health | `/api/health` |
-| Testing | xUnit |
-| Deploy | Docker multi-stage |
+| Testing | xUnit + NSubstitute + NetArchTest.Rules |
+| Deploy | Docker multi-stage (distroless) |
 
 ---
 
-## Esquema de BD (módulos actuales)
+## REGLA DE ORO — Acceso a datos: `DapperDbConnection<T>`
 
-| Tabla | Descripción |
-|-------|-------------|
-| `dbo.Tenants` | 001-002 — Empresas SaaS |
-| `dbo.Branches` | 010-011 — Sucursales de un tenant |
-| `dbo.Users` | 020-021 — Usuarios con TenantId + BranchId FK |
-| `dbo.RefreshTokens` | 030-031 — Tokens de actualización JWT |
-
-**Numeración de migraciones:** bloques de 10 por entidad. Próxima entidad comienza en `040`.
-
----
-
-## REGLA DE ORO — Acceso a datos: `MainDapperDbConnection`
-
-**Todo SQL del proyecto pasa obligatoriamente por `MainDapperDbConnection`.**
+**Todo SQL del proyecto pasa obligatoriamente por `DapperDbConnection<T>`** de `Shared/Database`.
 
 ### Cadena completa
 
 ```
-ConnectionStrings:MainDbConnection (appsettings.json)
+ConnectionStrings:{T.Name}  (appsettings.json)
     ↓
-MainDbConnectionFactory  (abre NpgsqlConnection)
+DbConnectionFactory<T>       (lee la cadena por typeof(T).Name — singleton)
     ↓
-MainDapperDbConnection   (ejecuta Dapper + logs de performance automáticos)
+DapperDbConnection<T>        (ejecuta Dapper + logs de performance — scoped)
     ↓
-{Entidad}Sql classes     (inyectan MainDapperDbConnection)
+{Entidad}Sql classes          (inyectan DapperDbConnection<{Marcador}>)
 ```
+
+### Marcadores de base de datos
+
+| Marcador | Clave appsettings | Base | Acceso |
+|----------|-------------------|------|--------|
+| `MainDbConnection` | `ConnectionStrings:MainDbConnection` | PostgreSQL principal | Lectura/Escritura |
+| `ReadonlyDbConnection` | `ConnectionStrings:ReadonlyDbConnection` | Réplica de lectura | Solo lectura |
+
+Para agregar una nueva BD: crear un archivo marcador `{Nombre}DbConnection.cs` con clase vacía `public sealed class {Nombre}DbConnection;` y agregar la cadena de conexión en `appsettings.json`. No es necesario registrar nada en DI — los open generics lo resuelven automáticamente.
 
 ### Clases `...Sql`
 
-Cada tabla tiene una clase `{Entidad}Sql` bajo `Infrastructure/Persistence/SQLDB/Main/{Modulo}/`:
+Cada tabla tiene una clase `{Entidad}Sql` bajo `{Modulo}.Infrastructure/Persistence/SQLDB/`:
 
-- Recibe `MainDapperDbConnection` por constructor.
+- Recibe `DapperDbConnection<MainDbConnection>` por constructor.
 - Agrupa **todos** los queries de esa tabla — ninguno fuera de ella.
 - SQL como raw strings `"""..."""`. Nunca concatenación ni interpolación.
 - Parámetros siempre como objeto anónimo `new { param }`.
-- Retorna entidades de dominio directamente — sin Row classes intermedias.
+- Retorna entidades de dominio directamente.
 
 ```csharp
-public sealed class UsersSql
+public sealed class UserProfilesSql
 {
-    private readonly MainDapperDbConnection _db;
-    public UsersSql(MainDapperDbConnection db) => _db = db;
+    private readonly DapperDbConnection<MainDbConnection> _db;
+    public UserProfilesSql(DapperDbConnection<MainDbConnection> db) => _db = db;
 
-    public Task<User?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
-        _db.QuerySingleAsync<User>(
+    public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
+        _db.QuerySingleAsync<UserProfile>(
             """
-            SELECT Id, PublicId, TenantId, BranchId, FullName, Email, Role, IsActive, CreatedAtUtc, UpdatedAtUtc
-            FROM dbo.Users
+            SELECT Id, PublicId, TenantId, BranchId, FullName, IsActive, CreatedAtUtc, UpdatedAtUtc
+            FROM dbo.UserProfiles
             WHERE PublicId = @publicId AND TenantId = @tenantId AND IsActive = TRUE;
             """,
             new { publicId, tenantId },
@@ -187,7 +148,7 @@ public sealed class UsersSql
 }
 ```
 
-**Métodos disponibles en `MainDapperDbConnection`:**
+**Métodos disponibles en `DapperDbConnection<T>`:**
 
 | Método | Retorno | Uso |
 |--------|---------|-----|
@@ -204,7 +165,7 @@ public sealed class UsersSql
 ```
 HTTP Request
     ↓
-{Modulo}Controller  →  var result = await Mediator.Send(new {Accion}Request(...), ct)
+{Modulo}Controller  →  _ = await Mediator.Send(new {Accion}Request(...), ct)
                                 ↓
                     {Accion}Handler.Handle(request, ct)
                         return new {Accion}Success(...) | new {Accion}Failure(...)
@@ -215,14 +176,12 @@ HTTP Request
                     {Accion}Presenter.Handle(response, ct)
                         _viewModel.Set(success) | _viewModel.OK(data) | _viewModel.Fail(msg)
                                 ↓
-Controller  →  if (_viewModel.IsSuccess) return Ok(_viewModel);
-               return result is XxxNotFoundFailure ? NotFound(_viewModel) : StatusCode(500, _viewModel);
+Controller  →  _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(...)
                                 ↓
-HTTP Response  (siempre ResultViewModel<TController> JSON)
+HTTP Response  { data, isSuccess, message, utcTimeStamp }
 ```
 
-- El controller captura el `result` de `Send()` **solo** para determinar el HTTP status code.
-- Los datos de la respuesta siempre vienen del ViewModel (set por el Presenter).
+- El controller descarta el retorno de `Send` (`_ = await ...`) — los datos llegan al presenter vía Publish.
 - **TODA** respuesta HTTP pasa por `ResultViewModel<TController>` — nunca retornar datos directos.
 - El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**.
 
@@ -230,38 +189,23 @@ HTTP Response  (siempre ResultViewModel<TController> JSON)
 
 ## Patrón de caso de uso
 
-### Request (con contexto tenant)
+### Request
 
 ```csharp
-public sealed record GetUserRequest(Guid PublicId, long TenantId) : IRequest<GetUserResponse>;
-```
-
-El controller extrae `TenantId` y `BranchId` directamente de los claims JWT:
-
-```csharp
-private long CurrentTenantId =>
-    long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
-private long CurrentBranchId =>
-    long.TryParse(User.FindFirstValue("branch_id"), out var id) ? id : 0;
+public sealed record GetUserProfileRequest(Guid PublicId, long TenantId)
+    : IRequest<GetUserProfileResponse>;
 ```
 
 ### Responses
 
 ```csharp
-// Base — abstract, implementa IResponse de Common.Messaging
-public abstract record GetUserResponse : IResponse;
+public abstract record GetUserProfileResponse : IResponse;
 
-// Éxito con DTO único
-public sealed record GetUserSuccess(UserDto Data) : GetUserResponse, ISuccess<UserDto>;
+public sealed record GetUserProfileSuccess(UserProfileDto Data)
+    : GetUserProfileResponse, ISuccess<UserProfileDto>;
 
-// Éxito con datos custom (paginación, colecciones)
-// NUNCA implementar ISuccess<TSelf> con Data => this — referencia circular en JSON
-public sealed record GetUsersSuccess(
-    IReadOnlyCollection<UserDto> Users, int Total, int Page, int PageSize)
-    : GetUsersResponse, ISuccess;
-
-// Fallo
-public sealed record GetUserNotFoundFailure(string Message) : GetUserResponse, INotFoundFailure;
+public sealed record GetUserProfileNotFoundFailure(string Message)
+    : GetUserProfileResponse, INotFoundFailure;
 ```
 
 **Interfaces de resultado (`Common.Results`):**
@@ -278,69 +222,74 @@ public sealed record GetUserNotFoundFailure(string Message) : GetUserResponse, I
 ### Handler
 
 ```csharp
-public sealed class GetUserHandler : IRequestHandler<GetUserRequest, GetUserResponse>
+public sealed class GetUserProfileHandler : IRequestHandler<GetUserProfileRequest, GetUserProfileResponse>
 {
-    private readonly IUserRepository _users;
-    public GetUserHandler(IUserRepository users) => _users = users;
+    private readonly IUserProfileRepository _profiles;
+    public GetUserProfileHandler(IUserProfileRepository profiles) => _profiles = profiles;
 
-    public async Task<GetUserResponse> Handle(GetUserRequest request, CancellationToken cancellationToken)
+    public async Task<GetUserProfileResponse> Handle(
+        GetUserProfileRequest request, CancellationToken cancellationToken)
     {
-        var user = await _users.GetByPublicIdAsync(request.PublicId, request.TenantId, cancellationToken);
-        if (user is null)
-            return new GetUserNotFoundFailure("Usuario no encontrado.");
-        return new GetUserSuccess(new UserDto(...));
+        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, request.TenantId, cancellationToken);
+        if (profile is null)
+            return new GetUserProfileNotFoundFailure("Perfil no encontrado.");
+        return new GetUserProfileSuccess(new UserProfileDto(...));
     }
 }
 ```
+
+> `AddMediator(typeof({Modulo}.Application.ServiceCollectionEx).Assembly)` en `Host.Api/Program.cs` descubre y registra este handler automáticamente — **no hay que tocarlo**.
 
 ### Presenter
 
 ```csharp
-// Variante A — success implementa ISuccess<TDto> → _viewModel.Set(success)
-public sealed class GetUserPresenter : INotificationHandler<GetUserResponse>
+public sealed class GetUserProfilePresenter : INotificationHandler<GetUserProfileResponse>
 {
     private readonly ResultViewModel<UsersController> _viewModel;
-    public GetUserPresenter(ResultViewModel<UsersController> viewModel)
+    public GetUserProfilePresenter(ResultViewModel<UsersController> viewModel)
         => _viewModel = viewModel;
 
-    public Task Handle(GetUserResponse notification, CancellationToken cancellationToken)
+    public Task Handle(GetUserProfileResponse notification, CancellationToken cancellationToken)
     {
         if (notification is IFailure failure)
             _viewModel.Fail(failure.Message);
-        else if (notification is ISuccess<UserDto> success)
+        else if (notification is ISuccess<UserProfileDto> success)
             _viewModel.Set(success);
         return Task.CompletedTask;
     }
 }
-
-// Variante B — success implementa ISuccess (sin genérico) → _viewModel.OK(success)
-// else if (notification is GetUsersSuccess success)
-//     _viewModel.OK(success);
 ```
+
+**Presenters se registran MANUALMENTE** en `{Modulo}.Presentation/ServiceCollectionEx.cs` — nunca auto-descubiertos.
 
 **Métodos de `ResultViewModel<T>`:**
 
 | Método | Cuándo |
 |--------|--------|
 | `_viewModel.Set(ISuccess<TDto> s)` | Éxito con `ISuccess<TDto>` — Data = s.Data |
-| `_viewModel.OK(object data)` | Éxito con datos custom — Data = el objeto |
+| `_viewModel.OK(object data)` | Éxito con datos custom (colecciones, paginados) |
 | `_viewModel.Fail(string msg)` | Cualquier fallo — IsSuccess = false |
 
 ### Controller
 
 ```csharp
+using Shared.Web;
+
 [Route("api/users")]
 [Authorize]
 public sealed class UsersController : BaseApiController
 {
-    private readonly ILogger<UsersController>        _logger;
+    private readonly ILogger<UsersController>         _logger;
     private readonly ResultViewModel<UsersController> _viewModel;
 
     public UsersController(
         IMediator mediator,
         ILogger<UsersController> logger,
         ResultViewModel<UsersController> viewModel) : base(mediator)
-    { _logger = logger; _viewModel = viewModel; }
+    {
+        _logger    = logger;
+        _viewModel = viewModel;
+    }
 
     private long CurrentTenantId =>
         long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
@@ -350,58 +299,152 @@ public sealed class UsersController : BaseApiController
     {
         try
         {
-            var result = await Mediator.Send(new GetUserRequest(id, CurrentTenantId), ct);
+            var result = await Mediator.Send(new GetUserProfileRequest(id, CurrentTenantId), ct);
             if (_viewModel.IsSuccess) return Ok(_viewModel);
-            return result is GetUserNotFoundFailure
-                ? NotFound(_viewModel)
-                : StatusCode(500, _viewModel);
+            return result is GetUserProfileNotFoundFailure ? NotFound(_viewModel) : StatusCode(500, _viewModel);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error en GetById User");
-            var inner = ex;
-            while (inner.InnerException != null) inner = inner.InnerException!;
+            _logger.LogError(ex, "Error en GetById");
+            var inner = ex; while (inner.InnerException != null) inner = inner.InnerException!;
             return StatusCode(500, _viewModel.Fail(inner.Message));
         }
     }
 }
 ```
 
-### Registro DI — `WebApi/ServiceCollectionEx.cs`
-
-```csharp
-services.AddScoped(typeof(ResultViewModel<>));
-services.AddScoped<INotificationHandler<GetUserResponse>, GetUserPresenter>();
-// Un registro por abstract response
-```
+> `BaseApiController` vive en `Shared/Web/` — expone `protected readonly IMediator Mediator`. Nunca crear uno por módulo.
 
 ---
 
-## Servicios de dominio (Application.Services)
+## Contracts — comunicación entre módulos
 
-| Interfaz | Implementación | Descripción |
-|----------|---------------|-------------|
-| `IJwtTokenService` | `Infrastructure/Services/JwtTokenService.cs` | Genera access token (HS256) + refresh token |
-| `IPasswordHasher` | `Infrastructure/Services/PasswordHasher.cs` | Hash/Verify con BCrypt (workFactor: 12) |
+```
+{Modulo}.Contracts/
+└── Events/
+    ├── I{Modulo}Event.cs        → interface base con OccurredOnUtc (si aplica)
+    └── {NombreEvento}Event.cs   → sealed record
+└── Dtos/
+    └── {Entidad}Dto.cs          → DTOs públicos compartidos con otros módulos
+└── Interfaces/
+    └── I{Modulo}Api.cs          → API pública del módulo (para consumo sin CQRS)
+```
 
-**Claims del JWT:**
+Si el módulo B necesita datos del módulo A: referencia `A.Contracts` — **nunca** `A.Application`, `A.Domain` ni `A.Infrastructure`.
 
-| Claim | Valor |
-|-------|-------|
-| `sub` | user.PublicId (UUID) |
-| `email` | user.Email |
-| `role` | user.Role ("Admin" / "User") |
-| `tenant_id` | user.TenantId (long como string) |
-| `branch_id` | user.BranchId (long como string) |
+Ejemplo real: `Authentication` referencia `Tenancy.Contracts.Interfaces.ITenancyApi` para validar que el tenant existe al registrar un usuario.
 
-**Config necesaria en appsettings:**
-```json
-"Jwt": {
-  "Key": "...",
-  "Issuer": "...",
-  "Audience": "...",
-  "ExpirationMinutes": 60,
-  "RefreshTokenExpiryDays": 30
+---
+
+## Registro DI — 3 ServiceCollectionEx por módulo + Host
+
+```csharp
+// {Modulo}.Infrastructure/ServiceCollectionEx.cs
+public static IServiceCollection Add{Modulo}InfrastructureServices(this IServiceCollection services)
+{
+    services.AddScoped<UserProfilesSql>();
+    services.AddScoped<IUserProfileRepository, UserProfileRepository>();
+    return services;
+}
+
+// {Modulo}.Presentation/ServiceCollectionEx.cs
+public static IServiceCollection Add{Modulo}WebApiServices(this IServiceCollection services)
+{
+    services.AddScoped(typeof(ResultViewModel<>));
+    services.AddScoped<INotificationHandler<GetUserProfileResponse>, GetUserProfilePresenter>();
+    // ... resto de presenters MANUALMENTE
+    services.AddControllers().AddApplicationPart(Assembly.GetExecutingAssembly());
+    return services;
+}
+
+// Host.Api/Program.cs
+builder.Services.AddMainDatabase();
+builder.Services.AddMediator(
+    typeof(Tenancy.Application.ServiceCollectionEx).Assembly,
+    typeof(Users.Application.ServiceCollectionEx).Assembly,
+    typeof(Authentication.Application.ServiceCollectionEx).Assembly
+);
+builder.Services.AddTenancyApplicationServices();
+builder.Services.AddTenancyInfrastructureServices();
+builder.Services.AddTenancyWebApiServices();
+builder.Services.AddUsersApplicationServices();
+builder.Services.AddUsersInfrastructureServices();
+builder.Services.AddUsersWebApiServices();
+// ...
+```
+
+**Lifetimes:**
+
+| Tipo | Lifetime |
+|------|----------|
+| `DbConnectionFactory<>` | Singleton (open generic) |
+| `DapperDbConnection<>` | Scoped (open generic) |
+| `...Sql`, repositorios, presenters, `ResultViewModel<>` | Scoped |
+| `IRequestHandler<,>` | Scoped (auto por `AddMediator`) |
+
+---
+
+## Multi-tenancy
+
+Tenant = empresa / Branch = sucursal. Llegan al backend vía claims JWT:
+- `tenant_id` → BIGINT como string en el claim
+- `branch_id` → BIGINT como string en el claim
+
+El controller extrae los claims con `User.FindFirstValue("tenant_id")`.
+`TenantClaimsMiddleware` los inyecta en `ITenantContextAccessor` para Serilog y OpenTelemetry.
+
+---
+
+## Migraciones de esquema (PostgreSQL)
+
+Viven en `Host.Api/Services/Schema Migration/Tables/`. Se ejecutan automáticamente al iniciar.
+
+**Numeración:** bloques de 10 por entidad. `NNN_<tabla>.sql` + `NNN+1_<tabla>_indexes.sql`.
+
+| Bloque | Tabla | Módulo |
+|--------|-------|--------|
+| 001-002 | `dbo.Tenants` | Tenancy |
+| 010-011 | `dbo.Branches` | Tenancy |
+| 020-021 | `dbo.Credentials` | Authentication |
+| 030-031 | `dbo.UserProfiles` | Users |
+| 040-041 | `dbo.RefreshTokens` | Authentication |
+
+**Próxima entidad libre: bloque 050.**
+
+**Reglas:**
+- Todos los archivos son idempotentes: `CREATE TABLE IF NOT EXISTS`.
+- Nunca editar migraciones ya aplicadas — nueva migración con número mayor.
+- Esquema `dbo` para todas las tablas.
+- Fechas UTC: `TIMESTAMP(0) NOT NULL DEFAULT (timezone('utc', now()))`.
+
+---
+
+## Tests por módulo
+
+Cada módulo tiene `{Modulo}.Tests/` con:
+
+**Architecture tests** (`Architecture/`) — NetArchTest.Rules:
+- Domain no depende de Application / Infrastructure / Presentation
+- Application no depende de Infrastructure / Presentation
+- Infrastructure no depende de Application / Presentation
+
+**Unit tests** (`UseCases/`) — xUnit + NSubstitute:
+- Un archivo por Handler
+- Mockear repositorios — sin base de datos
+
+```csharp
+private readonly IUserProfileRepository _repo = Substitute.For<IUserProfileRepository>();
+
+[Fact]
+public async Task Handle_WhenProfileExists_ReturnsSuccess()
+{
+    _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+        .Returns(new UserProfile { FullName = "John" });
+
+    var result = await new GetUserProfileHandler(_repo)
+        .Handle(new GetUserProfileRequest(Guid.NewGuid(), 1), default);
+
+    Assert.IsType<GetUserProfileSuccess>(result);
 }
 ```
 
@@ -411,67 +454,29 @@ services.AddScoped<INotificationHandler<GetUserResponse>, GetUserPresenter>();
 
 | Tipo | Patrón | Ejemplo |
 |------|--------|---------|
-| Request | `{Accion}Request` | `GetUserRequest` |
-| Handler | `{Accion}Handler` | `GetUserHandler` |
-| Response base | `{Accion}Response` | `GetUserResponse` |
-| Éxito | `{Accion}Success` | `GetUserSuccess` |
-| Fallo | `{Accion}{Tipo}Failure` | `GetUserNotFoundFailure` |
-| Presenter | `{Accion}Presenter` | `GetUserPresenter` |
-| Request body | `{Accion}Body` | `CreateUserBody` |
+| Request | `{Accion}Request` | `GetUserProfileRequest` |
+| Handler | `{Accion}Handler` | `GetUserProfileHandler` |
+| Response base | `{Accion}Response` | `GetUserProfileResponse` |
+| Éxito | `{Accion}Success` | `GetUserProfileSuccess` |
+| Fallo | `{Accion}{Tipo}Failure` | `GetUserProfileNotFoundFailure` |
+| Presenter | `{Accion}Presenter` | `GetUserProfilePresenter` |
+| Request body | `{Accion}Body` | `UpdateUserProfileBody` |
 | Controller | `{Modulo}Controller` | `UsersController` |
-| SQL object | `{Entidad}Sql` | `UsersSql` |
-| Clase marcadora BD | `{Nombre}DbConnection` | `MainDbConnection` |
-| Repositorio interfaz | `I{Entidad}Repository` | `IUserRepository` |
-| DTO | `{Entidad}Dto` | `UserDto` |
-
----
-
-## Migraciones de esquema (PostgreSQL)
-
-Viven en `Host/Services/Schema Migration/Tables/`. Se ejecutan automáticamente al iniciar.
-
-**Numeración:** 3 dígitos, bloques de 10 por entidad.
-
-```
-NNN_<tabla>.sql            — CREATE TABLE IF NOT EXISTS
-NNN+1_<tabla>_indexes.sql  — índices
-```
-
-Bloques actuales: Tenants=001, Branches=010, Users=020, RefreshTokens=030. **Próxima entidad: 040.**
-
-**Reglas absolutas:**
-- Todos los archivos son idempotentes: `CREATE TABLE IF NOT EXISTS`.
-- Nunca editar migraciones ya aplicadas → nueva migración con número mayor.
-- Esquema `dbo` para todas las tablas.
-- Fechas UTC: `TIMESTAMP(0) NOT NULL DEFAULT (timezone('utc', now()))`.
-
----
-
-## Registro de dependencias (DI)
-
-| Archivo | Responsabilidad |
-|---------|----------------|
-| `Application/ServiceCollectionEx.cs` | `AddApplicationServices()` — mediator + handlers |
-| `Infrastructure/ServiceCollectionEx.cs` | `AddInfrastructureServices(config)` — factories, SQL objects, repositorios, servicios de dominio, ITenantContextAccessor |
-| `WebApi/ServiceCollectionEx.cs` | `AddWebApiServices()` — `ResultViewModel<>`, presenters, controllers |
-| `Host/Extensions/JwtAuthExtensions.cs` | `AddJwtAuthentication(config)` — JWT HS256 |
-| `Host/Extensions/CorsExtensions.cs` | `AddLocalhostCors()` — CORS localhost:\* |
-| `Host/Extensions/SwaggerExtensions.cs` | `AddSwaggerWithJwt()` — Swagger + Bearer UI |
-| `Host/Extensions/HealthExtensions.cs` | `AddHealthServices(config)` + `MapHealth()` — `/api/health` |
-| `Host/Program.cs` | Composición final + `UseMiddleware<TenantClaimsMiddleware>()` |
-
-Lifetimes: `MainDbConnectionFactory`, `ITenantContextAccessor` → Singleton. `MainDapperDbConnection`, `...Sql`, repositorios, servicios, presenters, `ResultViewModel<>` → Scoped.
+| SQL object | `{Entidad}Sql` | `UserProfilesSql` |
+| Marcador BD | `{Nombre}DbConnection` | `MainDbConnection` |
+| Repositorio interfaz | `I{Entidad}Repository` | `IUserProfileRepository` |
+| DTO | `{Entidad}Dto` | `UserProfileDto` |
+| Evento de integración | `{Accion}IntegrationEvent` | `UserShouldBeCreatedIntegrationEvent` |
 
 ---
 
 ## Autenticación
 
 - JWT HS256: `Jwt:Key` (≥ 32 chars), `Jwt:Issuer`, `Jwt:Audience` desde config / variables de entorno.
-- Registrado en `Host/Extensions/JwtAuthExtensions.cs`.
 - Login: `POST /api/auth/login` → `{ accessToken, refreshToken, expiresAtUtc }`.
-- Refresh: `POST /api/auth/refresh` → nuevo par de tokens.
-- Roles: `[Authorize(Roles = "Admin")]` para endpoints de escritura en Users.
-- Nunca poner secretos JWT en `appsettings*.json` — usar variables de entorno en producción.
+- Refresh: `POST /api/auth/refresh`.
+- Roles: `[Authorize(Roles = "Admin")]` para endpoints de escritura.
+- Nunca poner secretos JWT en `appsettings*.json`.
 
 ---
 
@@ -480,34 +485,41 @@ Lifetimes: `MainDbConnectionFactory`, `ITenantContextAccessor` → Singleton. `M
 - **Logging:** `ILogger<T>` → Serilog → Seq (`http://localhost:5341` en dev). Nunca `Console.WriteLine`.
 - **Tracing:** OpenTelemetry OTLP → Jaeger (`http://localhost:16686` en dev).
 - **Métricas:** Prometheus en `/metrics`.
-- **Health:** `/api/health` — incluye check de PostgreSQL.
+- **Health:** `/api/health`.
 
 ---
 
 ## Reglas que no se negocian
 
-1. `Application` nunca referencia `Infrastructure`.
-2. `WebApi` nunca accede a PostgreSQL ni a repositorios concretos.
-3. El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**.
-4. Todo SQL vive en clases `...Sql` — cero SQL inline en repositorios, handlers o servicios.
-5. Toda respuesta HTTP pasa por `ResultViewModel<TController>` — nunca retornar datos directos.
-6. No secretos en `appsettings*.json` — variables de entorno.
-7. No editar el submódulo `Common` desde este repositorio.
-8. Al terminar cualquier cambio: `dotnet build` desde `Host` con **0 errores**.
+1. Los módulos no se referencian entre sí — solo a través de `{Modulo}.Contracts`.
+2. `Application` nunca referencia `Infrastructure`.
+3. `Infrastructure` nunca referencia `Application`.
+4. El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**.
+5. Todo SQL vive en clases `...Sql` — cero SQL inline en repositorios, handlers o servicios.
+6. Toda respuesta HTTP pasa por `ResultViewModel<TController>` — nunca retornar datos directos.
+7. No secretos en `appsettings*.json` — variables de entorno.
+8. **PROHIBIDO modificar el submódulo `Common`** desde este repositorio.
+9. `BaseApiController` vive en `Shared/Web/` — **no** se crea uno por módulo.
+10. Los presenters se registran **manualmente** en `{Modulo}.Presentation/ServiceCollectionEx.cs`.
+11. Al terminar cualquier cambio: `dotnet build` desde `Host.Api` con **0 errores**.
+12. Todo módulo nuevo debe incluir `{Modulo}.Tests` con tests de arquitectura y unitarios.
 
 ---
 
 ## Flujo para cambios funcionales
 
-**Antes:** trazar el flujo completo. Identificar la capa correcta de cada pieza.
+**Antes:** trazar el flujo completo. Identificar módulo, tabla y base de datos.
 
-**Durante:**
-1. Nueva tabla → `Host/Services/Schema Migration/Tables/NNN_tabla.sql` + `NNN+1_tabla_indexes.sql`.
-2. Nueva entidad → `Domain/Entities/{Modulo}/` + interfaz en `Domain/Repositories/{Modulo}/`.
-3. Nueva `...Sql` → `Infrastructure/Persistence/SQLDB/Main/{Modulo}/`.
-4. Nuevo repositorio → `Infrastructure/Repositories/{Modulo}/` + DI en `Infrastructure/ServiceCollectionEx.cs`.
-5. Nuevo caso de uso → `Application/UseCases/{Modulo}/{Accion}/` (Request + Handler + Responses/).
-6. Nuevo presenter → `WebApi/EndPoints/{Modulo}/Presenters/` + registro en `WebApi/ServiceCollectionEx.cs`.
-7. Nuevo controller (o nuevo endpoint) → `WebApi/EndPoints/{Modulo}/{Modulo}Controller.cs` extiende `BaseApiController`, inyecta `ResultViewModel<{Modulo}Controller>` y `ILogger<>`.
+**Durante (por capas):**
 
-**Al terminar:** `dotnet build` desde `Host` — 0 errores.
+1. Nueva tabla → `Host.Api/Services/Schema Migration/Tables/NNN_tabla.sql` + `NNN+1_tabla_indexes.sql`
+2. DTO público → `{Modulo}.Contracts/Dtos/`
+3. Entidad → `{Modulo}.Domain/Entities/` + interfaz en `{Modulo}.Domain/Repositories/`
+4. `...Sql` → `{Modulo}.Infrastructure/Persistence/SQLDB/` inyectando `DapperDbConnection<MainDbConnection>`
+5. Repositorio → `{Modulo}.Infrastructure/Repositories/` + DI en `{Modulo}.Infrastructure/ServiceCollectionEx.cs`
+6. Caso de uso → `{Modulo}.Application/UseCases/{Accion}/` (Request + Handler + Responses/)
+7. Presenter → `{Modulo}.Presentation/Presenters/` + registro **manual** en `{Modulo}.Presentation/ServiceCollectionEx.cs`
+8. Controller (o endpoint) → `{Modulo}.Presentation/Controllers/{Modulo}Controller.cs` extendiendo `BaseApiController`
+9. Test unitario → `{Modulo}.Tests/UseCases/{Accion}HandlerTests.cs`
+
+**Al terminar:** `dotnet build Host.Api/Host.Api.csproj` — 0 errores.

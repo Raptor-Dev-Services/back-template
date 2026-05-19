@@ -2,68 +2,80 @@
 
 ---
 
-## ICurrentUserService
+## Claims JWT en los controllers
 
-Forma de obtener el usuario autenticado dentro de los Handlers **sin pasar `HttpContext`** a la capa de Application.
-
-### El problema
+Los controllers extraen `TenantId` y `BranchId` directamente de los claims del JWT. No se usa `IHttpContextAccessor` en Application.
 
 ```csharp
-// ❌ Application no puede conocer HttpContext — viola Clean Architecture
-public class UpdateUserHandler
-{
-    private readonly IHttpContextAccessor _http;  // ← Infrastructure de ASP.NET Core en Application
+// En cualquier controller de Presentation
+private long CurrentTenantId =>
+    long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
 
-    public async Task<...> Handle(...)
-    {
-        var userId = _http.HttpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    }
-}
+private long CurrentBranchId =>
+    long.TryParse(User.FindFirstValue("branch_id"), out var id) ? id : 0;
+
+private Guid CurrentUserPublicId =>
+    Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id) ? id : Guid.Empty;
+
+private string CurrentEmail =>
+    User.FindFirstValue(JwtRegisteredClaimNames.Email) ?? "";
+
+private bool IsAdmin => User.IsInRole("Admin");
 ```
+
+---
+
+## ICurrentUserService (opcional)
+
+Para casos donde múltiples handlers necesitan el usuario autenticado, se puede crear `ICurrentUserService`.
 
 ### Interfaz en Application
 
 ```csharp
-// Application/Abstractions/ICurrentUserService.cs
+// {Modulo}.Application/Abstractions/ICurrentUserService.cs
 public interface ICurrentUserService
 {
-    Guid?   UserId    { get; }
-    string? Email     { get; }
-    bool    IsAuthenticated { get; }
+    Guid?   UserPublicId     { get; }
+    string? Email            { get; }
+    long    TenantId         { get; }
+    long    BranchId         { get; }
+    bool    IsAuthenticated  { get; }
     bool    IsInRole(string role);
-    string? GetClaim(string claimType);
 }
 ```
 
-### Implementación en WebApi (conoce HttpContext)
+### Implementación en Presentation (conoce HttpContext)
 
 ```csharp
-// WebApi/Services/CurrentUserService.cs
+// {Modulo}.Presentation/Services/CurrentUserService.cs
 public sealed class CurrentUserService : ICurrentUserService
 {
     private readonly IHttpContextAccessor _http;
-
     public CurrentUserService(IHttpContextAccessor http) => _http = http;
 
     private ClaimsPrincipal? User => _http.HttpContext?.User;
 
-    public Guid? UserId => Guid.TryParse(
-        User?.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
+    public Guid? UserPublicId =>
+        Guid.TryParse(User?.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id) ? id : null;
 
-    public string? Email => User?.FindFirstValue(ClaimTypes.Email);
+    public string? Email => User?.FindFirstValue(JwtRegisteredClaimNames.Email);
+
+    public long TenantId =>
+        long.TryParse(User?.FindFirstValue("tenant_id"), out var id) ? id : 0;
+
+    public long BranchId =>
+        long.TryParse(User?.FindFirstValue("branch_id"), out var id) ? id : 0;
 
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated ?? false;
 
     public bool IsInRole(string role) => User?.IsInRole(role) ?? false;
-
-    public string? GetClaim(string claimType) => User?.FindFirstValue(claimType);
 }
 ```
 
 ### Registro en DI
 
 ```csharp
-// WebApi/ServiceCollectionEx.cs
+// {Modulo}.Presentation/ServiceCollectionEx.cs
 services.AddHttpContextAccessor();
 services.AddScoped<ICurrentUserService, CurrentUserService>();
 ```
@@ -71,316 +83,165 @@ services.AddScoped<ICurrentUserService, CurrentUserService>();
 ### Uso en Handlers
 
 ```csharp
-// Application — solo conoce ICurrentUserService, no HttpContext
-public sealed class UpdateExampleUserHandler
-    : IRequestHandler<UpdateExampleUserRequest, UpdateExampleUserResponse>
+public sealed class UpdateMyProfileHandler : IRequestHandler<UpdateMyProfileRequest, UpdateMyProfileResponse>
 {
-    private readonly IExampleUserRepository _repo;
+    private readonly IUserProfileRepository _profiles;
     private readonly ICurrentUserService    _currentUser;
 
-    public UpdateExampleUserHandler(
-        IExampleUserRepository repo,
-        ICurrentUserService currentUser)
+    public UpdateMyProfileHandler(IUserProfileRepository profiles, ICurrentUserService currentUser)
     {
-        _repo        = repo;
+        _profiles    = profiles;
         _currentUser = currentUser;
     }
 
-    public async Task<UpdateExampleUserResponse> Handle(
-        UpdateExampleUserRequest request, CancellationToken ct)
+    public async Task<UpdateMyProfileResponse> Handle(UpdateMyProfileRequest request, CancellationToken ct)
     {
-        // Verificar que el usuario está modificando su propio perfil
-        // (o es admin y puede modificar cualquiera)
-        if (_currentUser.UserId != request.PublicId && !_currentUser.IsInRole("admin"))
-            return new UpdateExampleUserUnauthorizedFailure("No autorizado.");
+        if (_currentUser.UserPublicId != request.PublicId && !_currentUser.IsInRole("Admin"))
+            return new UpdateMyProfileForbiddenFailure("No autorizado.");
 
-        var user = await _repo.GetByPublicIdAsync(request.PublicId, ct);
-        if (user is null)
-            return new UpdateExampleUserNotFoundFailure("Usuario no encontrado.");
+        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, _currentUser.TenantId, ct);
+        if (profile is null)
+            return new UpdateMyProfileNotFoundFailure("Perfil no encontrado.");
 
-        // actualizar...
-        return new UpdateExampleUserSuccess(new ExampleUserDto(user));
+        return new UpdateMyProfileSuccess(/* ... */);
     }
 }
 ```
 
 ---
 
-## Roles y Claims en el Token JWT
+## Roles y Claims
 
-### Emitir claims al generar el token
+### Claims emitidos al generar el token
+
+`Authentication.Infrastructure/Services/JwtTokenService.cs` genera los claims:
 
 ```csharp
-// Infrastructure/Services/JwtTokenService.cs
-public string GenerateToken(Guid publicId, string email, IEnumerable<string> roles)
-{
-    var claims = new List<Claim>
-    {
-        new(ClaimTypes.NameIdentifier, publicId.ToString()),
-        new(ClaimTypes.Email, email),
-        new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-    };
-
-    // Agregar un claim por cada rol
-    claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
-
-    var key   = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Key));
-    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-    var token = new JwtSecurityToken(
-        issuer:             _settings.Issuer,
-        audience:           _settings.Audience,
-        claims:             claims,
-        expires:            DateTime.UtcNow.AddMinutes(_settings.ExpiresInMinutes),
-        signingCredentials: creds);
-
-    return new JwtSecurityTokenHandler().WriteToken(token);
-}
+new Claim(JwtRegisteredClaimNames.Sub,   credential.PublicId.ToString()),
+new Claim(JwtRegisteredClaimNames.Email, credential.Email),
+new Claim(ClaimTypes.Role,               credential.Role),
+new Claim("tenant_id",                   credential.TenantId.ToString()),
+new Claim("branch_id",                   credential.BranchId.ToString()),
+new Claim(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString()),
 ```
 
-### Verificar roles en Application (sin [Authorize])
+### Verificar roles en controladores
 
 ```csharp
-// En el Handler — verificación explícita sin depender de atributos
-if (!_currentUser.IsInRole("admin") && !_currentUser.IsInRole("manager"))
-    return new DeleteExampleUserUnauthorizedFailure("Se requiere rol admin o manager.");
-
-// En el Controller — verificación declarativa (más simple para endpoints completos)
-[Authorize(Roles = "admin")]
+// Declarativo — aplica a todo el endpoint
 [HttpDelete("{id:guid}")]
-public async Task<IActionResult> Delete(Guid id, CancellationToken ct) { ... }
-```
+[Authorize(Roles = "Admin")]
+public async Task<IActionResult> Disable(Guid id, CancellationToken ct) { ... }
 
-### Claim personalizado
-
-```csharp
-// Al generar el token:
-claims.Add(new Claim("tenant_id", tenantId.ToString()));
-claims.Add(new Claim("plan", "premium"));
-
-// En CurrentUserService:
-public Guid? TenantId => Guid.TryParse(GetClaim("tenant_id"), out var id) ? id : null;
-public string? Plan   => GetClaim("plan");
+// Programático — verificación en el handler
+if (!_currentUser.IsInRole("Admin") && _currentUser.UserPublicId != resource.OwnerPublicId)
+    return new ForbiddenFailure("No tienes permiso para acceder a este recurso.");
 ```
 
 ---
 
 ## Audit Trail — CreatedBy / UpdatedBy
 
-Registrar automáticamente qué usuario creó o modificó cada entidad.
+Para registrar qué usuario creó o modificó cada entidad, pasar el `UserPublicId` como parte del request desde el controller.
 
-### Interfaz de auditoría
+### En el controller
 
 ```csharp
-// Domain/Shared/IAuditable.cs
-public interface IAuditable
+[HttpPost]
+[Authorize(Roles = "Admin")]
+public async Task<IActionResult> Create([FromBody] CreateProductBody body, CancellationToken ct = default)
 {
-    Guid?    CreatedBy    { get; }
-    Guid?    UpdatedBy    { get; }
-    DateTime CreatedAtUtc { get; }
-    DateTime UpdatedAtUtc { get; }
+    _ = await _mediator.Send(new CreateProductRequest(
+        body.Name, CurrentTenantId, CurrentBranchId, CurrentUserPublicId), ct);
+    return _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(500, _viewModel);
 }
 ```
 
-### En la entidad
+### En el request
 
 ```csharp
-public sealed class ExampleUser : IAuditable
-{
-    public int      Id           { get; init; }
-    public Guid     PublicId     { get; init; }
-    public string   FullName     { get; private set; } = string.Empty;
-    public string   Email        { get; private set; } = string.Empty;
-    public bool     IsActive     { get; private set; }
-
-    // Audit fields
-    public Guid?    CreatedBy    { get; private set; }
-    public Guid?    UpdatedBy    { get; private set; }
-    public DateTime CreatedAtUtc { get; init; }
-    public DateTime UpdatedAtUtc { get; private set; }
-}
+public sealed record CreateProductRequest(
+    string Name,
+    long   TenantId,
+    long   BranchId,
+    Guid   CreatedByPublicId)
+    : IRequest<CreateProductResponse>;
 ```
 
-### SQL con audit trail
+### En la tabla SQL
 
-```csharp
-// INSERT con audit
-public Task InsertAsync(ExampleUser user, CancellationToken ct = default) =>
-    _db.ExecuteAsync(
-        """
-        INSERT INTO dbo.ExampleUsers
-            (PublicId, FullName, Email, IsActive, CreatedBy, CreatedAtUtc, UpdatedBy, UpdatedAtUtc)
-        VALUES
-            (@PublicId, @FullName, @Email, @IsActive, @CreatedBy,
-             timezone('utc', now()), @CreatedBy, timezone('utc', now()));
-        """,
-        new
-        {
-            user.PublicId, user.FullName, user.Email,
-            user.IsActive, user.CreatedBy
-        },
-        cancellationToken: ct);
-
-// UPDATE con audit
-public Task UpdateAsync(ExampleUser user, CancellationToken ct = default) =>
-    _db.ExecuteAsync(
-        """
-        UPDATE dbo.ExampleUsers
-        SET FullName     = @FullName,
-            Email        = @Email,
-            UpdatedBy    = @UpdatedBy,
-            UpdatedAtUtc = timezone('utc', now())
-        WHERE PublicId = @PublicId;
-        """,
-        new { user.PublicId, user.FullName, user.Email, user.UpdatedBy },
-        cancellationToken: ct);
-```
-
-### Handler rellenando el audit automáticamente
-
-```csharp
-public async Task<InsertExampleUserResponse> Handle(
-    InsertExampleUserRequest request, CancellationToken ct)
-{
-    var user = new ExampleUser
-    {
-        PublicId     = Guid.NewGuid(),
-        FullName     = request.FullName,
-        Email        = request.Email,
-        IsActive     = true,
-        CreatedBy    = _currentUser.UserId,   // ← quién lo creó
-        CreatedAtUtc = DateTime.UtcNow,
-        UpdatedAtUtc = DateTime.UtcNow
-    };
-
-    await _repo.InsertAsync(user, ct);
-    return new InsertExampleUserSuccess(new ExampleUserDto(user));
-}
+```sql
+ALTER TABLE dbo.Products
+    ADD COLUMN IF NOT EXISTS CreatedByPublicId UUID NULL,
+    ADD COLUMN IF NOT EXISTS UpdatedByPublicId UUID NULL;
 ```
 
 ---
 
-## HttpClient Tipado + Polly
+## HttpClient Tipado + Resiliencia
 
-Para llamar a servicios externos con resiliencia integrada.
+Para llamar a APIs externas con retry + circuit breaker.
 
-### Definir el cliente tipado
+### Interfaz en Application
 
 ```csharp
-// Application/Abstractions/IPaymentService.cs  (interfaz en Application)
-public interface IPaymentService
+// {Modulo}.Application/Abstractions/IExternalPaymentService.cs
+public interface IExternalPaymentService
 {
-    Task<PaymentResult> ValidateAsync(string cardToken, decimal amount, CancellationToken ct);
     Task<PaymentResult> ChargeAsync(string cardToken, decimal amount, CancellationToken ct);
 }
+```
 
-// Infrastructure/ExternalServices/PaymentService.cs  (implementación en Infrastructure)
-public sealed class PaymentService : IPaymentService
+### Implementación en Infrastructure
+
+```csharp
+// {Modulo}.Infrastructure/ExternalServices/ExternalPaymentService.cs
+public sealed class ExternalPaymentService : IExternalPaymentService
 {
     private readonly HttpClient _http;
-    private readonly ILogger<PaymentService> _logger;
+    private readonly ILogger<ExternalPaymentService> _logger;
 
-    public PaymentService(HttpClient http, ILogger<PaymentService> logger)
+    public ExternalPaymentService(HttpClient http, ILogger<ExternalPaymentService> logger)
     {
         _http   = http;
         _logger = logger;
     }
 
-    public async Task<PaymentResult> ValidateAsync(
-        string cardToken, decimal amount, CancellationToken ct)
+    public async Task<PaymentResult> ChargeAsync(string cardToken, decimal amount, CancellationToken ct)
     {
-        var response = await _http.PostAsJsonAsync("/api/payments/validate",
-            new { cardToken, amount }, ct);
-
+        var response = await _http.PostAsJsonAsync("/api/charge", new { cardToken, amount }, ct);
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("Payment validation failed: {Status}", response.StatusCode);
-            return PaymentResult.Failed("Validación de pago fallida.");
+            _logger.LogWarning("Payment failed: {Status}", response.StatusCode);
+            return PaymentResult.Failed("Cargo fallido.");
         }
-
         return await response.Content.ReadFromJsonAsync<PaymentResult>(ct)
-               ?? PaymentResult.Failed("Respuesta vacía del servicio de pagos.");
-    }
-
-    public async Task<PaymentResult> ChargeAsync(
-        string cardToken, decimal amount, CancellationToken ct)
-    {
-        var response = await _http.PostAsJsonAsync("/api/payments/charge",
-            new { cardToken, amount }, ct);
-
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<PaymentResult>(ct)!;
+               ?? PaymentResult.Failed("Respuesta vacía.");
     }
 }
 ```
 
-### Registro con Polly en DI
+### Registro en DI
 
 ```csharp
-// Host/Extensions/HttpClientsExtensions.cs
-public static IServiceCollection AddExternalHttpClients(
-    this IServiceCollection services, IConfiguration configuration)
+// {Modulo}.Infrastructure/ServiceCollectionEx.cs
+services.AddHttpClient<IExternalPaymentService, ExternalPaymentService>(client =>
 {
-    var jitterer = new Random();
-
-    services.AddHttpClient<IPaymentService, PaymentService>(client =>
-        {
-            client.BaseAddress = new Uri(
-                configuration["ExternalServices:PaymentUrl"]
-                ?? throw new InvalidOperationException("ExternalServices:PaymentUrl no configurado."));
-            client.Timeout = TimeSpan.FromSeconds(30);
-            client.DefaultRequestHeaders.Add("X-Api-Key",
-                configuration["ExternalServices:PaymentApiKey"]);
-        })
-        // Retry: 3 intentos con backoff exponencial + jitter
-        .AddTransientHttpErrorPolicy(p => p.WaitAndRetryAsync(
-            retryCount: 3,
-            sleepDurationProvider: attempt =>
-                TimeSpan.FromSeconds(Math.Pow(2, attempt))
-                + TimeSpan.FromMilliseconds(jitterer.Next(0, 500))))
-        // Circuit Breaker: abre si 5 fallos seguidos, espera 30s
-        .AddTransientHttpErrorPolicy(p => p.CircuitBreakerAsync(
-            handledEventsAllowedBeforeBreaking: 5,
-            durationOfBreak: TimeSpan.FromSeconds(30)));
-
-    return services;
-}
-
-// Host/Program.cs
-builder.Services.AddExternalHttpClients(builder.Configuration);
-```
-
-### Registrar IPaymentService en Infrastructure
-
-```csharp
-// Infrastructure/ServiceCollectionEx.cs
-// AddHttpClient ya registra IPaymentService como Scoped automáticamente
-// Solo necesitas registrar la interfaz si NO usas AddHttpClient tipado:
-// services.AddScoped<IPaymentService, PaymentService>();
+    client.BaseAddress = new Uri(configuration["ExternalServices:PaymentUrl"]!);
+    client.Timeout     = TimeSpan.FromSeconds(30);
+})
+.AddStandardResilienceHandler();   // retry + circuit breaker de Microsoft.Extensions.Http.Resilience
 ```
 
 ### Uso en un Handler
 
 ```csharp
-public sealed class ProcessPaymentHandler
-    : IRequestHandler<ProcessPaymentRequest, ProcessPaymentResponse>
+public async Task<ProcessPaymentResponse> Handle(ProcessPaymentRequest request, CancellationToken ct)
 {
-    private readonly IPaymentService _payments;
-    private readonly IOrderRepository _orders;
+    var result = await _payments.ChargeAsync(request.CardToken, request.Amount, ct);
+    if (!result.IsSuccess)
+        return new ProcessPaymentFailure(result.ErrorMessage);
 
-    public async Task<ProcessPaymentResponse> Handle(
-        ProcessPaymentRequest request, CancellationToken ct)
-    {
-        var validation = await _payments.ValidateAsync(request.CardToken, request.Amount, ct);
-        if (!validation.IsSuccess)
-            return new ProcessPaymentValidationFailure(validation.ErrorMessage);
-
-        var result = await _payments.ChargeAsync(request.CardToken, request.Amount, ct);
-        if (!result.IsSuccess)
-            return new ProcessPaymentFailure(result.ErrorMessage);
-
-        await _orders.MarkAsPaidAsync(request.OrderId, result.TransactionId, ct);
-        return new ProcessPaymentSuccess(result.TransactionId);
-    }
+    return new ProcessPaymentSuccess(result.TransactionId);
 }
 ```

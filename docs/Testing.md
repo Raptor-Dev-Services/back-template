@@ -1,238 +1,434 @@
-# Testing.md — Guía de Tests
+# Testing — Guía completa
 
-Cómo escribir y correr tests en este proyecto con xUnit.
+Cada módulo tiene su propio proyecto de tests: `{Modulo}.Tests`. Hay dos tipos de tests y ambos son obligatorios.
 
 ---
 
-## Estructura del proyecto de tests
+## Estructura de tests
 
 ```
-Tests/
-├── Domain/
-│   └── SampleDomainTests.cs        ← Tests de entidades y lógica de dominio pura
-├── Application/
-│   └── UseCases/{Modulo}/          ← Tests de handlers (unit tests)
-├── Infrastructure/
-│   └── {Modulo}/                   ← Tests de repositorios (integration tests — requieren DB)
-└── WebApi/
-    └── {Modulo}/                   ← Tests de presenters y mapeo de ViewModels
+{Modulo}.Tests/
+├── Architecture/
+│   └── {Modulo}ArchitectureTests.cs   ← tests de arquitectura (NetArchTest.Rules)
+└── UseCases/
+    ├── {Accion}HandlerTests.cs         ← tests unitarios del handler
+    └── {Accion}HandlerTests.cs
 ```
+
+Los proyectos que existen:
+
+| Proyecto | Ruta |
+|----------|------|
+| `Users.Tests` | `Modules/Users/Users.Tests/` |
+| `Tenancy.Tests` | `Modules/Tenancy/Tenancy.Tests/` |
+| `Authentication.Tests` | `Shared/Authentication/Authentication.Tests/` |
 
 ---
 
 ## Correr los tests
 
 ```bash
-# Todos los tests
-dotnet test back-template/Tests/Tests.csproj
+# Un módulo específico
+dotnet test back-template/Modules/Users/Users.Tests/Users.Tests.csproj
+dotnet test back-template/Modules/Tenancy/Tenancy.Tests/Tenancy.Tests.csproj
+dotnet test back-template/Shared/Authentication/Authentication.Tests/Authentication.Tests.csproj
 
-# Con verbosidad para ver cada test
-dotnet test back-template/Tests/Tests.csproj --verbosity normal
+# Todos a la vez (desde la solución)
+dotnet test back-template/back-template.slnx
 
-# Filtrar por nombre
-dotnet test --filter "FullyQualifiedName~GetProductHandler"
+# Con output detallado
+dotnet test back-template/back-template.slnx --verbosity normal
 
-# Filtrar por categoría (si usas [Trait])
+# Filtrar por nombre de método
+dotnet test --filter "FullyQualifiedName~LoginHandler"
+
+# Filtrar por categoría (Unit vs Integration)
 dotnet test --filter "Category=Unit"
 dotnet test --filter "Category=Integration"
-
-# Con cobertura de código
-dotnet test back-template/Tests/Tests.csproj --collect:"XPlat Code Coverage"
 ```
 
 ---
 
-## Testear un Handler (unit test)
+## Tipo 1 — Tests de arquitectura (NetArchTest.Rules)
 
-Los handlers son la parte más importante de testear. No tienen dependencias en ASP.NET ni en la base de datos — solo en repositorios que puedes mockear.
+Verifican en tiempo de CI que nadie ha roto las reglas de dependencias. Si alguien referencia `Users.Infrastructure` desde `Users.Application`, el test falla y el build se rompe.
 
-### Ejemplo: GetProductHandler
+### Los 7 tests por módulo
+
+Cada módulo tiene exactamente estos 7 tests:
 
 ```csharp
-using Application.Dto.Products;
-using Application.UseCases.Products.GetProduct;
-using Domain.Entities.Products;
-using Domain.Repositories.Products;
-using NSubstitute;   // o Moq — agregar el paquete NuGet que prefieras
+// {Modulo}.Tests/Architecture/{Modulo}ArchitectureTests.cs
+using NetArchTest.Rules;
+using System.Reflection;
+using Users.Application.UseCases.GetUserProfile;   // cualquier tipo de Application
+using Users.Domain.Entities;                        // cualquier tipo de Domain
+using Users.Infrastructure.Repositories;            // cualquier tipo de Infrastructure
 using Xunit;
 
-namespace Tests.Application.UseCases.Products;
+namespace Users.Tests.Architecture;
 
-public class GetProductHandlerTests
+public sealed class UsersArchitectureTests
 {
-    private readonly IProductRepository _repo = Substitute.For<IProductRepository>();
-    private readonly GetProductHandler  _handler;
+    // Namespaces que se vigilan
+    private const string ApplicationNs    = "Users.Application";
+    private const string InfrastructureNs = "Users.Infrastructure";
+    private const string PresentationNs   = "Users.Presentation";
 
-    public GetProductHandlerTests()
+    // Assemblies que se inspeccionan — se obtienen via typeof de cualquier clase pública
+    private static readonly Assembly DomainAssembly         = typeof(UserProfile).Assembly;
+    private static readonly Assembly ApplicationAssembly    = typeof(GetUserProfileHandler).Assembly;
+    private static readonly Assembly InfrastructureAssembly = typeof(UserProfileRepository).Assembly;
+
+    [Fact]
+    public void Domain_MustNot_DependOn_Application()
     {
-        _handler = new GetProductHandler(_repo);
+        var result = Types.InAssembly(DomainAssembly)
+            .ShouldNot().HaveDependencyOn(ApplicationNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
     }
 
     [Fact]
-    public async Task Handle_existing_product_returns_success()
+    public void Domain_MustNot_DependOn_Infrastructure()
     {
-        // Arrange
-        var publicId = Guid.NewGuid();
-        var product  = new Product
+        var result = Types.InAssembly(DomainAssembly)
+            .ShouldNot().HaveDependencyOn(InfrastructureNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
+    }
+
+    [Fact]
+    public void Domain_MustNot_DependOn_Presentation()
+    {
+        var result = Types.InAssembly(DomainAssembly)
+            .ShouldNot().HaveDependencyOn(PresentationNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
+    }
+
+    [Fact]
+    public void Application_MustNot_DependOn_Infrastructure()
+    {
+        var result = Types.InAssembly(ApplicationAssembly)
+            .ShouldNot().HaveDependencyOn(InfrastructureNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
+    }
+
+    [Fact]
+    public void Application_MustNot_DependOn_Presentation()
+    {
+        var result = Types.InAssembly(ApplicationAssembly)
+            .ShouldNot().HaveDependencyOn(PresentationNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
+    }
+
+    [Fact]
+    public void Infrastructure_MustNot_DependOn_Application()
+    {
+        var result = Types.InAssembly(InfrastructureAssembly)
+            .ShouldNot().HaveDependencyOn(ApplicationNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
+    }
+
+    [Fact]
+    public void Infrastructure_MustNot_DependOn_Presentation()
+    {
+        var result = Types.InAssembly(InfrastructureAssembly)
+            .ShouldNot().HaveDependencyOn(PresentationNs)
+            .GetResult();
+        Assert.True(result.IsSuccessful);
+    }
+}
+```
+
+### Cómo elegir los tipos para los assemblies
+
+Usar cualquier tipo público de cada proyecto. El assembly es lo que importa, no el tipo específico.
+
+```csharp
+// Domain: una Entity
+typeof(UserProfile).Assembly
+
+// Application: un Handler
+typeof(GetUserProfileHandler).Assembly
+
+// Infrastructure: un Repository o una clase Sql
+typeof(UserProfileRepository).Assembly
+// o:
+typeof(UserProfilesSql).Assembly
+```
+
+### Qué pasa cuando falla
+
+Si el test `Application_MustNot_DependOn_Infrastructure` falla, NetArchTest imprime exactamente qué clase en Application está importando Infrastructure:
+
+```
+Types that failed:
+- Users.Application.UseCases.GetUserProfile.GetUserProfileHandler
+  depends on: Users.Infrastructure.Persistence.SQLDB.UserProfilesSql
+```
+
+Eso señala exactamente dónde está la violación.
+
+---
+
+## Tipo 2 — Tests unitarios de handlers (xUnit + NSubstitute)
+
+Verifican la lógica de negocio de cada handler de forma aislada — sin base de datos, sin HTTP, sin DI container. Son rápidos y deterministas.
+
+### Patrón base
+
+```csharp
+// {Modulo}.Tests/UseCases/{Accion}HandlerTests.cs
+using NSubstitute;
+using Users.Application.UseCases.GetUserProfile;
+using Users.Application.UseCases.GetUserProfile.Responses;
+using Users.Domain.Entities;
+using Users.Domain.Repositories;
+using Xunit;
+
+namespace Users.Tests.UseCases;
+
+public sealed class GetUserProfileHandlerTests
+{
+    // Los mocks se declaran como campos — se recrean por cada test (xUnit crea una instancia por [Fact])
+    private readonly IUserProfileRepository _repo = Substitute.For<IUserProfileRepository>();
+
+    [Fact]
+    public async Task Handle_WhenProfileExists_ReturnsSuccess()
+    {
+        // Arrange — preparar el mock con datos de prueba
+        var profile = new UserProfile
         {
-            Id          = 1,
-            PublicId    = publicId,
-            Name        = "Widget",
-            Description = "A widget",
-            Price       = 9.99m,
-            IsActive    = true,
+            PublicId     = Guid.NewGuid(),
+            TenantId     = 1,
+            FullName     = "John Doe",
+            IsActive     = true,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow
         };
+        _repo.GetByPublicIdAsync(profile.PublicId, 1, Arg.Any<CancellationToken>())
+             .Returns(profile);
 
-        _repo.GetByPublicIdAsync(publicId, Arg.Any<CancellationToken>())
-             .Returns(product);
+        // Act — ejecutar el handler directamente (sin DI, sin mediator)
+        var result = await new GetUserProfileHandler(_repo)
+            .Handle(new GetUserProfileRequest(profile.PublicId, 1), default);
 
-        // Act
-        var response = await _handler.Handle(
-            new GetProductRequest(publicId), CancellationToken.None);
-
-        // Assert
-        var success = Assert.IsType<GetProductSuccess>(response);
-        Assert.Equal(publicId, success.Data.ProductId);
-        Assert.Equal("Widget", success.Data.Name);
+        // Assert — verificar el tipo y los datos del resultado
+        var success = Assert.IsType<GetUserProfileSuccess>(result);
+        Assert.NotNull(success.Data);
+        Assert.Equal("John Doe", success.Data.FullName);
     }
 
     [Fact]
-    public async Task Handle_missing_product_returns_not_found()
+    public async Task Handle_WhenProfileNotFound_ReturnsNotFoundFailure()
     {
-        // Arrange
-        _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-             .Returns((Product?)null);
+        // Arrange — el repo devuelve null
+        _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+             .Returns((UserProfile?)null);
 
         // Act
-        var response = await _handler.Handle(
-            new GetProductRequest(Guid.NewGuid()), CancellationToken.None);
+        var result = await new GetUserProfileHandler(_repo)
+            .Handle(new GetUserProfileRequest(Guid.NewGuid(), 1), default);
 
-        // Assert
-        var failure = Assert.IsType<GetProductNotFoundFailure>(response);
-        Assert.False(string.IsNullOrWhiteSpace(failure.Message));
-    }
-
-    [Fact]
-    public async Task Handle_calls_repository_with_correct_publicId()
-    {
-        // Arrange
-        var publicId = Guid.NewGuid();
-        _repo.GetByPublicIdAsync(publicId, Arg.Any<CancellationToken>())
-             .Returns((Product?)null);
-
-        // Act
-        await _handler.Handle(new GetProductRequest(publicId), CancellationToken.None);
-
-        // Assert
-        await _repo.Received(1).GetByPublicIdAsync(publicId, Arg.Any<CancellationToken>());
+        // Assert — verificar que es el tipo de fallo correcto
+        Assert.IsType<GetUserProfileNotFoundFailure>(result);
     }
 }
 ```
 
-### Agregar NSubstitute (o Moq)
+### Ejemplo con múltiples dependencias — LoginHandler
 
-Editar `Tests/Tests.csproj` y agregar:
-
-```xml
-<!-- NSubstitute (recomendado — sintaxis más limpia) -->
-<PackageReference Include="NSubstitute" Version="5.3.0" />
-
-<!-- O Moq (alternativa popular) -->
-<PackageReference Include="Moq" Version="4.20.72" />
-```
-
----
-
-## Testear un Presenter (unit test)
+Cuando el handler tiene varias interfaces, se mockean todas:
 
 ```csharp
-using Application.Dto.Products;
-using Application.UseCases.Products.GetProduct;
-using Common.Results;
-using Common.ViewModels;
-using WebApi.EndPoints.Products.Presenters;
-using Xunit;
-
-namespace Tests.WebApi.Products;
-
-public class GetProductPresenterTests
+public sealed class LoginHandlerTests
 {
-    private readonly ResultViewModel<object> _viewModel = new();
-    private readonly GetProductPresenter     _presenter;
+    private readonly IUserCredentialRepository _credentials   = Substitute.For<IUserCredentialRepository>();
+    private readonly IRefreshTokenRepository   _refreshTokens = Substitute.For<IRefreshTokenRepository>();
+    private readonly IPasswordHasher           _hasher        = Substitute.For<IPasswordHasher>();
+    private readonly IJwtTokenService          _jwt           = Substitute.For<IJwtTokenService>();
 
-    public GetProductPresenterTests()
+    [Fact]
+    public async Task Handle_WhenCredentialNotFound_ReturnsInvalidCredentialsFailure()
     {
-        // ResultViewModel<T> no tiene dependencias — se crea directamente
-        // El tipo genérico no importa para los tests
-        _presenter = new GetProductPresenter(
-            (ResultViewModel<WebApi.EndPoints.Products.ProductsController>)(object)_viewModel);
+        _credentials.GetForLoginAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((UserCredential?)null);
+
+        var result = await new LoginHandler(_credentials, _refreshTokens, _hasher, _jwt)
+            .Handle(new LoginRequest("user@test.com", "password"), default);
+
+        Assert.IsType<LoginInvalidCredentialsFailure>(result);
     }
 
     [Fact]
-    public async Task Handle_success_sets_data_in_viewmodel()
+    public async Task Handle_WhenPasswordInvalid_ReturnsInvalidCredentialsFailure()
     {
-        var dto      = new ProductDto(Guid.NewGuid(), "Widget", "Desc", 9.99m, true, DateTime.UtcNow, DateTime.UtcNow);
-        var response = new GetProductSuccess(dto);
+        var credential = new UserCredential
+        {
+            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1, BranchId = 1,
+            Email = "user@test.com", PasswordHash = "hash", Role = "User", IsActive = true
+        };
+        _credentials.GetForLoginAsync("user@test.com", Arg.Any<CancellationToken>()).Returns(credential);
+        _hasher.Verify("wrong-password", "hash").Returns(false);
 
-        await _presenter.Handle(response, CancellationToken.None);
+        var result = await new LoginHandler(_credentials, _refreshTokens, _hasher, _jwt)
+            .Handle(new LoginRequest("user@test.com", "wrong-password"), default);
 
-        Assert.True(_viewModel.IsSuccess);
-        Assert.Equal(dto, _viewModel.Data);
+        Assert.IsType<LoginInvalidCredentialsFailure>(result);
     }
 
     [Fact]
-    public async Task Handle_failure_sets_error_in_viewmodel()
+    public async Task Handle_WhenValidCredentials_ReturnsLoginSuccess()
     {
-        var response = new GetProductNotFoundFailure("Producto no encontrado.");
+        var credential = new UserCredential
+        {
+            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1, BranchId = 1,
+            Email = "user@test.com", PasswordHash = "hash", Role = "User", IsActive = true
+        };
+        _credentials.GetForLoginAsync("user@test.com", Arg.Any<CancellationToken>()).Returns(credential);
+        _hasher.Verify("password", "hash").Returns(true);
+        _jwt.GenerateAccessToken(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(),
+                                 Arg.Any<long>(), Arg.Any<long>())
+            .Returns("access-token");
+        _jwt.GenerateRefreshToken().Returns("refresh-token");
+        _jwt.GetRefreshTokenExpiry().Returns(DateTime.UtcNow.AddDays(7));
 
-        await _presenter.Handle(response, CancellationToken.None);
+        var result = await new LoginHandler(_credentials, _refreshTokens, _hasher, _jwt)
+            .Handle(new LoginRequest("user@test.com", "password"), default);
 
-        Assert.False(_viewModel.IsSuccess);
-        Assert.Equal("Producto no encontrado.", _viewModel.Message);
+        var success = Assert.IsType<LoginSuccess>(result);
+        Assert.Equal("access-token", success.Data.AccessToken);
+        Assert.Equal("refresh-token", success.Data.RefreshToken);
     }
 }
 ```
 
 ---
 
-## Testear lógica de dominio pura (unit test)
+## NSubstitute — referencia rápida
 
-Las entidades de dominio son simples records — se testean directamente sin mocks.
+### Crear un mock
 
 ```csharp
-using Domain.Entities.Products;
-using Xunit;
-
-namespace Tests.Domain;
-
-public class ProductTests
-{
-    [Fact]
-    public void Product_should_be_active_by_default()
-    {
-        var product = new Product { IsActive = true };
-        Assert.True(product.IsActive);
-    }
-}
+var repo = Substitute.For<IUserProfileRepository>();
 ```
+
+### Configurar retorno de un método
+
+```csharp
+// Retorno fijo
+repo.GetByPublicIdAsync(publicId, tenantId, Arg.Any<CancellationToken>())
+    .Returns(profile);
+
+// Retorno null
+repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+    .Returns((UserProfile?)null);
+
+// Método void / Task sin retorno — no necesita .Returns()
+// Pero si quieres hacer que lance una excepción:
+repo.InsertAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+    .Returns(Task.FromException(new Exception("DB error")));
+```
+
+### Matchers — `Arg.*`
+
+| Matcher | Qué hace |
+|---------|---------|
+| `Arg.Any<T>()` | Acepta cualquier valor de tipo T |
+| `Arg.Is<T>(x => x > 0)` | Acepta valores que cumplen la condición |
+| `Arg.Is(specificValue)` | Solo ese valor exacto |
+
+Usar `Arg.Any<CancellationToken>()` siempre que el método reciba un CT — el test pasa `default` pero el matcher no sabe eso.
+
+### Verificar que se llamó el método
+
+```csharp
+// Verificar que se llamó exactamente 1 vez con esos argumentos
+await repo.Received(1).GetByPublicIdAsync(publicId, tenantId, Arg.Any<CancellationToken>());
+
+// Verificar que nunca se llamó
+await repo.DidNotReceive().InsertAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+```
+
+### Comportamiento por defecto
+
+Sin configurar, NSubstitute devuelve:
+- `null` para reference types
+- `0` / `false` para value types
+- `Task.CompletedTask` para `Task`
+- `Task.FromResult(default(T))` para `Task<T>`
+
+Esto significa que no siempre es necesario configurar todos los métodos — solo los que el handler realmente llama en el camino que se está probando.
+
+---
+
+## Qué testear por handler
+
+Regla simple: **un test por rama de lógica**.
+
+| Condición | Test |
+|-----------|------|
+| Camino exitoso (happy path) | Retorna el tipo `Success` correcto con los datos esperados |
+| Recurso no encontrado | Retorna `NotFoundFailure` |
+| Conflicto (ya existe) | Retorna `ConflictFailure` |
+| Datos inválidos | Retorna `ValidationFailure` |
+| Condición de negocio especial | Un test por cada condición |
+
+**No testear:** implementaciones de repositorios, clases SQL, serialización JSON, comportamiento HTTP — eso no es responsabilidad del handler.
 
 ---
 
 ## Tests de integración (con base de datos real)
 
-Los tests de repositorios requieren PostgreSQL real. Usar `compose-db.yaml` para levantar la base de datos antes de correrlos.
+Los tests de integración usan PostgreSQL real. Se marcan con `[Trait("Category", "Integration")]` para poder separarlos de los unit tests.
 
-### Configuración
+```bash
+# Levantar la DB
+docker compose -f compose-db.yaml up -d
 
-Agregar en `Tests/Tests.csproj`:
-```xml
-<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
-<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+# Correr solo integration tests
+dotnet test --filter "Category=Integration"
+
+# Correr solo unit tests (sin Docker)
+dotnet test --filter "Category=Unit"
 ```
 
-Crear `Tests/appsettings.Test.json`:
+### DbFixture — conexión compartida
+
+```csharp
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Shared.Database;
+
+namespace Users.Tests;
+
+public sealed class DbFixture
+{
+    public DapperDbConnection<MainDbConnection> Db { get; }
+
+    public DbFixture()
+    {
+        var config = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.Test.json")
+            .AddEnvironmentVariables()
+            .Build();
+
+        var factory = new DbConnectionFactory<MainDbConnection>(config);
+        Db = new DapperDbConnection<MainDbConnection>(
+            factory,
+            NullLogger<DapperDbConnection<MainDbConnection>>.Instance,
+            config);
+    }
+}
+```
+
+`appsettings.Test.json` (en la raíz del proyecto `{Modulo}.Tests/`):
+
 ```json
 {
   "ConnectionStrings": {
@@ -244,138 +440,119 @@ Crear `Tests/appsettings.Test.json`:
 }
 ```
 
-### Fixture de base de datos
+### Test de repositorio con fixture
 
 ```csharp
-using Infrastructure.PostgreSql;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
-
-namespace Tests.Infrastructure;
-
-public sealed class DbFixture : IDisposable
-{
-    public MainDapperDbConnection Db { get; }
-
-    public DbFixture()
-    {
-        var config = new ConfigurationBuilder()
-            .AddJsonFile("appsettings.Test.json")
-            .Build();
-
-        var factory = new MainDbConnectionFactory(config);
-        Db = new MainDapperDbConnection(
-            factory,
-            NullLogger<MainDapperDbConnection>.Instance,
-            config);
-    }
-
-    public void Dispose() { }
-}
-```
-
-### Test de repositorio
-
-```csharp
-using Infrastructure.Persistence.SQLDB.Main.Products;
-using Infrastructure.Repositories.Products;
-using Xunit;
-
-namespace Tests.Infrastructure.Products;
-
 [Trait("Category", "Integration")]
-public class ProductRepositoryTests : IClassFixture<DbFixture>
+public sealed class UserProfileRepositoryTests : IClassFixture<DbFixture>
 {
-    private readonly ProductsSql        _sql;
-    private readonly ProductRepository  _repo;
+    private readonly UserProfilesSql        _sql;
+    private readonly UserProfileRepository  _repo;
 
-    public ProductRepositoryTests(DbFixture fixture)
+    public UserProfileRepositoryTests(DbFixture fixture)
     {
-        _sql  = new ProductsSql(fixture.Db);
-        _repo = new ProductRepository(_sql);
+        _sql  = new UserProfilesSql(fixture.Db);
+        _repo = new UserProfileRepository(_sql);
     }
 
     [Fact]
-    public async Task InsertAsync_creates_product_with_generated_publicId()
+    public async Task GetByPublicIdAsync_ReturnsNull_ForUnknownId()
     {
-        var product = await _repo.InsertAsync("Test Widget", "Description", 19.99m);
-
-        Assert.NotEqual(Guid.Empty, product.PublicId);
-        Assert.Equal("Test Widget", product.Name);
-        Assert.True(product.IsActive);
-    }
-
-    [Fact]
-    public async Task GetByPublicIdAsync_returns_null_for_unknown_id()
-    {
-        var product = await _repo.GetByPublicIdAsync(Guid.NewGuid());
-
-        Assert.Null(product);
+        var profile = await _repo.GetByPublicIdAsync(Guid.NewGuid(), tenantId: 1);
+        Assert.Null(profile);
     }
 }
 ```
 
-Levantar la DB antes de correr los integration tests:
-```bash
-docker compose -f compose-db.yaml up -d
-dotnet test --filter "Category=Integration"
-```
-
----
-
-## Separar unit tests e integration tests
-
-Usar `[Trait]` para categorizar:
-
-```csharp
-[Trait("Category", "Unit")]
-public class GetProductHandlerTests { ... }
-
-[Trait("Category", "Integration")]
-public class ProductRepositoryTests { ... }
-```
-
-Correr solo unit tests (no requieren Docker):
-```bash
-dotnet test --filter "Category=Unit"
-```
-
-Correr solo integration tests (requieren Docker con compose-db.yaml):
-```bash
-docker compose -f compose-db.yaml up -d
-dotnet test --filter "Category=Integration"
-```
+**`IClassFixture<T>`:** xUnit crea una sola instancia de `DbFixture` para todos los tests de la clase. Así se abre la conexión una sola vez, no por cada test.
 
 ---
 
 ## Cobertura de código
 
 ```bash
-# Generar reporte de cobertura
-dotnet test back-template/Tests/Tests.csproj --collect:"XPlat Code Coverage" --results-directory ./coverage
+# Generar datos de cobertura
+dotnet test back-template/back-template.slnx --collect:"XPlat Code Coverage" --results-directory ./coverage
 
-# Ver el archivo generado
-ls coverage/**/*.xml
-
-# Instalar reportgenerator (una vez)
+# Instalar la herramienta de reporte (una sola vez, global)
 dotnet tool install -g dotnet-reportgenerator-globaltool
 
 # Generar reporte HTML
 reportgenerator -reports:"coverage/**/*.xml" -targetdir:"coverage/report" -reporttypes:Html
 
-# Abrir el reporte
-start coverage/report/index.html   # Windows
+# Abrir en Windows
+start coverage/report/index.html
 ```
 
 ---
 
-## Convenciones para tests
+## .csproj de un módulo Tests — referencia completa
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <!-- Necesario para resolver tipos de ASP.NET en tests de arquitectura -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Test runners y herramientas -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="10.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="NSubstitute" Version="5.3.0" />
+    <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
+  </ItemGroup>
+
+  <!-- Todos los proyectos del módulo -->
+  <ItemGroup>
+    <ProjectReference Include="../../../Common/Common/Common.csproj" />
+    <ProjectReference Include="../Users.Contracts/Users.Contracts.csproj" />
+    <ProjectReference Include="../Users.Domain/Users.Domain.csproj" />
+    <ProjectReference Include="../Users.Application/Users.Application.csproj" />
+    <ProjectReference Include="../Users.Infrastructure/Users.Infrastructure.csproj" />
+    <ProjectReference Include="../Users.Presentation/Users.Presentation.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+---
+
+## Convenciones
 
 | Convención | Descripción |
 |-----------|-------------|
-| Nombre del método | `{Sujeto}_{Condición}_{Resultado}` — ej. `Handle_missing_product_returns_not_found` |
-| Estructura del test | Arrange / Act / Assert |
-| Mocking | NSubstitute o Moq — no mockear la base de datos en unit tests |
-| Tests de handlers | Solo testear lógica de negocio — sin SQL real |
-| Tests de repositorios | Usar base de datos real (integration) — no mockear Dapper |
-| Limpieza de datos | Usar transacciones que se revierten al final del test, o una base de datos de test separada |
+| Nombre del método | `{Sujeto}_{Condición}_{Resultado}` — ej. `Handle_WhenProfileNotFound_ReturnsNotFoundFailure` |
+| Estructura interna | Arrange / Act / Assert con línea en blanco entre secciones |
+| Mocks | NSubstitute — no usar Moq para mantener consistencia |
+| Handler tests | Instanciar el handler directamente con `new` — sin DI container |
+| CancellationToken | Pasar `default` en el Act; usar `Arg.Any<CancellationToken>()` en el Arrange |
+| Datos de prueba | Inline en el test — sin builders externos para tests unitarios simples |
+| Sin SQL real | Los unit tests nunca tocan la base de datos |
+
+---
+
+## Resumen — qué va en cada tipo
+
+| ¿Qué testear? | Tipo de test | Herramienta |
+|---------------|-------------|-------------|
+| Reglas de dependencias (Domain no toca Infrastructure, etc.) | Architecture | NetArchTest.Rules |
+| Lógica del handler (happy path, not found, conflict) | Unit | xUnit + NSubstitute |
+| Lógica de dominio pura (entidades con comportamiento) | Unit | xUnit |
+| Queries SQL (insertar, buscar, actualizar) | Integration | xUnit + DB real |
+| Endpoints HTTP completos | Integration | xUnit + WebApplicationFactory |

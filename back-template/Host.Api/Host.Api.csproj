@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Common/Common/Common.csproj" />
+    <ProjectReference Include="../Shared/Database/Shared.Database.csproj" />
+    <ProjectReference Include="../Modules/Tenancy/Tenancy.Application/Tenancy.Application.csproj" />
+    <ProjectReference Include="../Modules/Tenancy/Tenancy.Infrastructure/Tenancy.Infrastructure.csproj" />
+    <ProjectReference Include="../Modules/Tenancy/Tenancy.Presentation/Tenancy.Presentation.csproj" />
+    <ProjectReference Include="../Modules/Users/Users.Application/Users.Application.csproj" />
+    <ProjectReference Include="../Modules/Users/Users.Infrastructure/Users.Infrastructure.csproj" />
+    <ProjectReference Include="../Modules/Users/Users.Presentation/Users.Presentation.csproj" />
+    <ProjectReference Include="../Shared/Authentication/Authentication.Application/Authentication.Application.csproj" />
+    <ProjectReference Include="../Shared/Authentication/Authentication.Infrastructure/Authentication.Infrastructure.csproj" />
+    <ProjectReference Include="../Shared/Authentication/Authentication.Presentation/Authentication.Presentation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.4.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Services\Schema Migration\Tables\*.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

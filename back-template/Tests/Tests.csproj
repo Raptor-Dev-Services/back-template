@@ -21,11 +21,5 @@
     </PackageReference>
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="../Domain/Domain.csproj" />
-    <ProjectReference Include="../Application/Application.csproj" />
-    <ProjectReference Include="../Infrastructure/Infrastructure.csproj" />
-    <ProjectReference Include="../WebApi/WebApi.csproj" />
-  </ItemGroup>
 
 </Project>

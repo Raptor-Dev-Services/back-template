@@ -2,52 +2,30 @@
 
 ---
 
-## PagedResult\<T\> — respuesta paginada estandarizada
-
-En lugar de que cada caso de uso invente su propia estructura, un tipo genérico centraliza la paginación.
-
-### Definir PagedResult\<T\>
-
-```csharp
-// Common o Application/Shared/PagedResult.cs
-public sealed record PagedResult<T>(
-    IReadOnlyCollection<T> Items,
-    int                    Total,
-    int                    Page,
-    int                    PageSize)
-{
-    public int  TotalPages  => (int)Math.Ceiling(Total / (double)PageSize);
-    public bool HasNextPage => Page < TotalPages;
-    public bool HasPrevPage => Page > 1;
-}
-```
+## Paginación estandarizada
 
 ### Response del caso de uso
 
 ```csharp
-// Application/UseCases/ExampleUsers/GetAll/Responses/
-public abstract record GetExampleUsersResponse : IResponse;
+// {Modulo}.Application/UseCases/GetUserProfiles/Responses/
+public abstract record GetUserProfilesResponse : IResponse;
 
-// ISuccess (sin genérico) — evita referencia circular en JSON
-public sealed record GetExampleUsersSuccess(
-    IReadOnlyCollection<ExampleUserDto> Items,
+// ISuccess sin genérico — evita referencia circular en JSON
+public sealed record GetUserProfilesSuccess(
+    IReadOnlyCollection<UserProfileDto> Items,
     int Total, int Page, int PageSize)
-    : GetExampleUsersResponse, ISuccess;
-
-public sealed record GetExampleUsersFailure(string Message)
-    : GetExampleUsersResponse, IFailure;
+    : GetUserProfilesResponse, ISuccess;
 ```
 
 ### Request con parámetros de paginación
 
 ```csharp
-public sealed record GetExampleUsersRequest(
-    int    Page     = 1,
-    int    PageSize = 10,
-    string? Search  = null)
-    : IRequest<GetExampleUsersResponse>
+public sealed record GetUserProfilesRequest(
+    long TenantId,
+    int  Page     = 1,
+    int  PageSize = 20)
+    : IRequest<GetUserProfilesResponse>
 {
-    // Sanitizar en el record para que el Handler no tenga que hacerlo
     public int Page     { get; init; } = Math.Max(1, Page);
     public int PageSize { get; init; } = Math.Clamp(PageSize, 1, 100);
 }
@@ -56,95 +34,80 @@ public sealed record GetExampleUsersRequest(
 ### Handler
 
 ```csharp
-public sealed class GetExampleUsersHandler
-    : IRequestHandler<GetExampleUsersRequest, GetExampleUsersResponse>
+public sealed class GetUserProfilesHandler : IRequestHandler<GetUserProfilesRequest, GetUserProfilesResponse>
 {
-    private readonly IExampleUserRepository _repo;
-    public GetExampleUsersHandler(IExampleUserRepository repo) => _repo = repo;
+    private readonly IUserProfileRepository _profiles;
+    public GetUserProfilesHandler(IUserProfileRepository profiles) => _profiles = profiles;
 
-    public async Task<GetExampleUsersResponse> Handle(
-        GetExampleUsersRequest request, CancellationToken ct)
+    public async Task<GetUserProfilesResponse> Handle(GetUserProfilesRequest request, CancellationToken ct)
     {
-        var (items, total) = await _repo.GetPagedAsync(
-            request.Page, request.PageSize, request.Search, ct);
+        var items = await _profiles.GetPagedAsync(request.TenantId, request.Page, request.PageSize, ct);
+        var total = await _profiles.GetCountAsync(request.TenantId, ct);
 
-        var dtos = items.Select(u => new ExampleUserDto(u)).ToList().AsReadOnly();
+        var dtos = items.Select(p => new UserProfileDto(p.PublicId, p.FullName, p.IsActive, p.CreatedAtUtc, p.UpdatedAtUtc))
+                        .ToList().AsReadOnly();
 
-        return new GetExampleUsersSuccess(dtos, total, request.Page, request.PageSize);
+        return new GetUserProfilesSuccess(dtos, total, request.Page, request.PageSize);
     }
 }
 ```
 
-### SQL — query paginado con COUNT total
+### SQL — dos métodos separados (implementación real)
 
 ```csharp
-// Infrastructure/Persistence/SQLDB/Main/ExampleUsers/ExampleUsersSql.cs
-public async Task<(IEnumerable<ExampleUser> Items, int Total)> GetPagedAsync(
-    int page, int pageSize, string? search, CancellationToken ct = default)
-{
-    var offset = (page - 1) * pageSize;
-
-    // Un solo round-trip: datos + total con COUNT(*) OVER()
-    var rows = await _db.QueryAsync<ExampleUser, int, (ExampleUser, int)>(
+// Users.Infrastructure/Persistence/SQLDB/UserProfilesSql.cs
+public Task<IEnumerable<UserProfile>> GetPagedAsync(
+    long tenantId, int page, int pageSize, CancellationToken ct = default) =>
+    _db.QueryAsync<UserProfile>(
         """
-        SELECT
-            u.Id, u.PublicId, u.FullName, u.Email, u.IsActive,
-            u.CreatedAtUtc, u.UpdatedAtUtc,
-            COUNT(*) OVER() AS TotalCount
-        FROM dbo.ExampleUsers u
-        WHERE (@search IS NULL
-               OR u.FullName ILIKE '%' || @search || '%'
-               OR u.Email    ILIKE '%' || @search || '%')
-        ORDER BY u.CreatedAtUtc DESC
-        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
-        """,
-        (user, total) => (user, total),
-        new { search, offset, pageSize },
-        splitOn: "TotalCount",
-        cancellationToken: ct);
-
-    var list = rows.ToList();
-    var total = list.Count > 0 ? list[0].Item2 : 0;
-    return (list.Select(r => r.Item1), total);
-}
-
-// Alternativa simple con dos queries separados:
-public async Task<(IEnumerable<ExampleUser> Items, int Total)> GetPagedSimpleAsync(
-    int page, int pageSize, CancellationToken ct = default)
-{
-    var offset = (page - 1) * pageSize;
-
-    var items = await _db.QueryAsync<ExampleUser>(
-        """
-        SELECT Id, PublicId, FullName, Email, IsActive, CreatedAtUtc, UpdatedAtUtc
-        FROM dbo.ExampleUsers
+        SELECT Id, PublicId, TenantId, BranchId, FullName, IsActive, CreatedAtUtc, UpdatedAtUtc
+        FROM dbo.UserProfiles
+        WHERE TenantId = @tenantId AND IsActive = TRUE
         ORDER BY CreatedAtUtc DESC
-        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
+        LIMIT @limit OFFSET @offset;
         """,
-        new { offset, pageSize }, cancellationToken: ct);
-
-    var total = await _db.ExecuteScalarAsync<int>(
-        "SELECT COUNT(*) FROM dbo.ExampleUsers;",
+        new { tenantId, limit = pageSize, offset = (page - 1) * pageSize },
         cancellationToken: ct);
 
-    return (items, total);
-}
+public Task<int> GetCountAsync(long tenantId, CancellationToken ct = default) =>
+    _db.ExecuteScalarAsync<int>(
+        """
+        SELECT COUNT(*)::int FROM dbo.UserProfiles
+        WHERE TenantId = @tenantId AND IsActive = TRUE;
+        """,
+        new { tenantId },
+        cancellationToken: ct);
+```
+
+El handler llama ambos en paralelo si los resultados son independientes, o secuencial si el total no es crítico:
+
+```csharp
+// Secuencial (más simple)
+var items = await _profiles.GetPagedAsync(request.TenantId, request.Page, request.PageSize, ct);
+var total = await _profiles.GetCountAsync(request.TenantId, ct);
+
+// Paralelo (más eficiente)
+var itemsTask = _profiles.GetPagedAsync(request.TenantId, request.Page, request.PageSize, ct);
+var totalTask = _profiles.GetCountAsync(request.TenantId, ct);
+await Task.WhenAll(itemsTask, totalTask);
+var items = await itemsTask;
+var total = await totalTask;
 ```
 
 ### Presenter
 
 ```csharp
-public sealed class GetExampleUsersPresenter : IPresenter<GetExampleUsersResponse>
+public sealed class GetUserProfilesPresenter : INotificationHandler<GetUserProfilesResponse>
 {
-    private readonly ResultViewModel<ExampleUsersController> _viewModel;
-    public GetExampleUsersPresenter(ResultViewModel<ExampleUsersController> vm) => _viewModel = vm;
+    private readonly ResultViewModel<UsersController> _viewModel;
+    public GetUserProfilesPresenter(ResultViewModel<UsersController> viewModel) => _viewModel = viewModel;
 
-    public Task Handle(GetExampleUsersResponse notification, CancellationToken ct)
+    public Task Handle(GetUserProfilesResponse notification, CancellationToken ct)
     {
         if (notification is IFailure failure)
             _viewModel.Fail(failure.Message);
-        else if (notification is GetExampleUsersSuccess success)
-            _viewModel.OK(success);   // Data = { items, total, page, pageSize, totalPages, ... }
+        else if (notification is GetUserProfilesSuccess success)
+            _viewModel.OK(success);   // Data = { items, total, page, pageSize }
         return Task.CompletedTask;
     }
 }
@@ -155,39 +118,38 @@ public sealed class GetExampleUsersPresenter : IPresenter<GetExampleUsersRespons
 ```csharp
 [HttpGet]
 public async Task<IActionResult> GetAll(
-    [FromQuery] int     page     = 1,
-    [FromQuery] int     pageSize = 10,
-    [FromQuery] string? search   = null,
+    [FromQuery] int page     = 1,
+    [FromQuery] int pageSize = 20,
     CancellationToken ct = default)
 {
     try
     {
-        _ = await Mediator.Send(new GetExampleUsersRequest(page, pageSize, search), ct);
+        _ = await _mediator.Send(new GetUserProfilesRequest(CurrentTenantId, page, pageSize), ct);
         return _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(500, _viewModel);
     }
     catch (Exception ex)
     {
-        _logger.LogError(ex, "Error en GetAll");
-        return StatusCode(500, _viewModel.Fail(ex.Message));
+        _logger.LogError(ex, "Error en GetAll UserProfiles");
+        var inner = ex;
+        while (inner.InnerException != null) inner = inner.InnerException!;
+        return StatusCode(500, _viewModel.Fail(inner.Message));
     }
 }
 ```
 
 **Respuesta JSON:**
+
 ```json
 {
   "data": {
     "items": [...],
-    "total": 157,
+    "total": 57,
     "page": 2,
-    "pageSize": 10,
-    "totalPages": 16,
-    "hasNextPage": true,
-    "hasPrevPage": true
+    "pageSize": 20
   },
   "isSuccess": true,
-  "message": "",
-  "utcTimeStamp": "2026-05-11T..."
+  "message": null,
+  "utcTimeStamp": "2026-05-17T..."
 }
 ```
 
@@ -195,126 +157,100 @@ public async Task<IActionResult> GetAll(
 
 ## Refresh Tokens
 
-JWT de corta duración + refresh token de larga duración almacenado en DB.
+JWT de corta duración (`ExpirationMinutes`) + refresh token de larga duración (`RefreshTokenExpiryDays`) almacenado en `dbo.RefreshTokens`.
 
-### Migración
+La FK de `dbo.RefreshTokens` apunta a `dbo.Credentials(Id)`, no a usuarios de perfil.
+
+### Tabla
 
 ```sql
--- Host/Services/Schema Migration/Tables/020_refresh_tokens.sql
-CREATE TABLE IF NOT EXISTS dbo.RefreshTokens (
-    Id            SERIAL        PRIMARY KEY,
-    UserId        INT           NOT NULL REFERENCES dbo.ExampleUsers(Id) ON DELETE CASCADE,
-    Token         VARCHAR(256)  NOT NULL UNIQUE,
-    ExpiresAtUtc  TIMESTAMP(0)  NOT NULL,
-    IsRevoked     BOOLEAN       NOT NULL DEFAULT FALSE,
-    CreatedAtUtc  TIMESTAMP(0)  NOT NULL DEFAULT (timezone('utc', now())),
-    ReplacedByToken VARCHAR(256) NULL
+CREATE TABLE IF NOT EXISTS dbo.RefreshTokens
+(
+    Id           BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    CredentialId BIGINT       NOT NULL REFERENCES dbo.Credentials(Id),
+    Token        VARCHAR(256) NOT NULL,
+    ExpiresAtUtc TIMESTAMP(0) NOT NULL,
+    IsRevoked    BOOLEAN      NOT NULL DEFAULT FALSE,
+    CreatedAtUtc TIMESTAMP(0) NOT NULL DEFAULT (timezone('utc', now())),
+    CONSTRAINT UQ_RefreshTokens_Token UNIQUE (Token)
 );
-
--- 021_refresh_tokens_indexes.sql
-CREATE INDEX IF NOT EXISTS ix_refresh_tokens_token  ON dbo.RefreshTokens(Token);
-CREATE INDEX IF NOT EXISTS ix_refresh_tokens_userid ON dbo.RefreshTokens(UserId);
 ```
 
-### Entidad y repositorio
+### Entidad de dominio
+
+`Authentication.Domain/Entities/RefreshToken.cs`:
 
 ```csharp
-// Domain/Entities/Auth/RefreshToken.cs
 public sealed class RefreshToken
 {
-    public int      Id              { get; init; }
-    public int      UserId          { get; init; }
-    public string   Token           { get; init; } = string.Empty;
-    public DateTime ExpiresAtUtc    { get; init; }
-    public bool     IsRevoked       { get; init; }
-    public DateTime CreatedAtUtc    { get; init; }
-    public string?  ReplacedByToken { get; init; }
+    public long     Id           { get; init; }
+    public long     CredentialId { get; init; }
+    public string   Token        { get; init; } = "";
+    public DateTime ExpiresAtUtc { get; init; }
+    public bool     IsRevoked    { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
 
-    public bool IsExpired  => DateTime.UtcNow >= ExpiresAtUtc;
-    public bool IsActive   => !IsRevoked && !IsExpired;
-}
-
-// Domain/Repositories/Auth/IRefreshTokenRepository.cs
-public interface IRefreshTokenRepository
-{
-    Task<RefreshToken?> GetByTokenAsync(string token, CancellationToken ct = default);
-    Task InsertAsync(RefreshToken token, CancellationToken ct = default);
-    Task RevokeAsync(string token, string? replacedByToken, CancellationToken ct = default);
-    Task RevokeAllForUserAsync(int userId, CancellationToken ct = default);
+    public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;
+    public bool IsActive  => !IsRevoked && !IsExpired;
 }
 ```
 
-### Handler de refresh
+### Flujo de refresh
+
+`Authentication.Application/UseCases/RefreshToken/RefreshTokenHandler.cs`:
+
+1. Busca el token en `dbo.RefreshTokens` por valor exacto
+2. Verifica que `IsActive` (no revocado, no expirado)
+3. Carga las credenciales por `CredentialId`
+4. Revoca el token viejo (`IsRevoked = true`)
+5. Genera nuevo access token + nuevo refresh token
+6. Guarda el nuevo refresh token
+
+### SQL del repositorio
 
 ```csharp
-// Application/UseCases/Auth/RefreshToken/
-public sealed record RefreshTokenRequest(string AccessToken, string RefreshToken)
-    : IRequest<RefreshTokenResponse>;
+// Authentication.Infrastructure/Persistence/SQLDB/RefreshTokensSql.cs
+public Task<RefreshToken?> GetByTokenAsync(string token, CancellationToken ct = default) =>
+    _db.QuerySingleAsync<RefreshToken>(
+        """
+        SELECT Id, CredentialId, Token, ExpiresAtUtc, IsRevoked, CreatedAtUtc
+        FROM dbo.RefreshTokens
+        WHERE Token = @token AND IsRevoked = FALSE;
+        """,
+        new { token }, cancellationToken: ct);
 
-public abstract record RefreshTokenResponse : IResponse;
-public sealed record RefreshTokenSuccess(string AccessToken, string RefreshToken)
-    : RefreshTokenResponse, ISuccess;
-public sealed record RefreshTokenUnauthorizedFailure(string Message)
-    : RefreshTokenResponse, IUnauthorizedFailure;
+public Task InsertAsync(long credentialId, string token, DateTime expiresAtUtc, CancellationToken ct = default) =>
+    _db.ExecuteAsync(
+        """
+        INSERT INTO dbo.RefreshTokens (CredentialId, Token, ExpiresAtUtc)
+        VALUES (@credentialId, @token, @expiresAtUtc);
+        """,
+        new { credentialId, token, expiresAtUtc }, cancellationToken: ct);
 
-public sealed class RefreshTokenHandler
-    : IRequestHandler<RefreshTokenRequest, RefreshTokenResponse>
-{
-    private readonly IRefreshTokenRepository _refreshRepo;
-    private readonly IExampleUserRepository  _userRepo;
-    private readonly IJwtTokenService        _jwt;
-
-    public async Task<RefreshTokenResponse> Handle(
-        RefreshTokenRequest request, CancellationToken ct)
-    {
-        var stored = await _refreshRepo.GetByTokenAsync(request.RefreshToken, ct);
-
-        if (stored is null || !stored.IsActive)
-            return new RefreshTokenUnauthorizedFailure("Refresh token inválido o expirado.");
-
-        // Validar que el access token corresponde al mismo usuario
-        var userId = _jwt.GetUserIdFromExpiredToken(request.AccessToken);
-        if (userId != stored.UserId)
-            return new RefreshTokenUnauthorizedFailure("Token no corresponde al usuario.");
-
-        var user = await _userRepo.GetByIdAsync(stored.UserId, ct);
-        if (user is null || !user.IsActive)
-            return new RefreshTokenUnauthorizedFailure("Usuario no encontrado o inactivo.");
-
-        // Rotar: revocar el viejo, crear uno nuevo
-        var newRefresh = GenerateRefreshToken(user.Id);
-        var newAccess  = _jwt.GenerateToken(user.PublicId, user.Email);
-
-        await _refreshRepo.RevokeAsync(stored.Token, newRefresh.Token, ct);
-        await _refreshRepo.InsertAsync(newRefresh, ct);
-
-        return new RefreshTokenSuccess(newAccess, newRefresh.Token);
-    }
-
-    private static RefreshToken GenerateRefreshToken(int userId) => new()
-    {
-        UserId       = userId,
-        Token        = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
-        ExpiresAtUtc = DateTime.UtcNow.AddDays(30),
-        CreatedAtUtc = DateTime.UtcNow
-    };
-}
+public Task RevokeAsync(string token, CancellationToken ct = default) =>
+    _db.ExecuteAsync(
+        """
+        UPDATE dbo.RefreshTokens
+        SET IsRevoked = TRUE
+        WHERE Token = @token;
+        """,
+        new { token }, cancellationToken: ct);
 ```
 
 ---
 
 ## Background Services
 
-`BackgroundService` para tareas recurrentes (limpiar tokens expirados, enviar emails, etc.).
+`BackgroundService` para tareas recurrentes (limpiar tokens expirados, etc.).
 
 ### Patrón base
 
 ```csharp
-// Host/Services/Background/ExpiredTokenCleanupService.cs
+// Host.Api/Services/Background/ExpiredTokenCleanupService.cs
 public sealed class ExpiredTokenCleanupService : BackgroundService
 {
     // IServiceScopeFactory porque BackgroundService es Singleton
-    // y necesita crear Scoped services (repositorios, DB) por cada ejecución
+    // y necesita crear Scoped services (repos, DB) por cada ejecución
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ExpiredTokenCleanupService> _logger;
 
@@ -328,9 +264,6 @@ public sealed class ExpiredTokenCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("ExpiredTokenCleanupService started.");
-
-        // Esperar 1 min al arranque para que la app esté lista
         await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -341,51 +274,44 @@ public sealed class ExpiredTokenCleanupService : BackgroundService
             }
             catch (OperationCanceledException)
             {
-                break;  // graceful shutdown
+                break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ExpiredTokenCleanupService.");
-                // No re-lanzar — el loop continúa en el próximo ciclo
+                _logger.LogError(ex, "Error en ExpiredTokenCleanupService.");
             }
 
-            // Repetir cada 6 horas
             await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
         }
-
-        _logger.LogInformation("ExpiredTokenCleanupService stopped.");
     }
 
     private async Task CleanupAsync(CancellationToken ct)
     {
-        // Crear un scope nuevo por cada ejecución — los repos son Scoped
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRefreshTokenRepository>();
-
         var deleted = await repo.DeleteExpiredAsync(ct);
         _logger.LogInformation("Cleaned up {Count} expired refresh tokens.", deleted);
     }
 }
 ```
 
-### Registro en DI
+### Registro
 
 ```csharp
-// Host/Program.cs o Host/Extensions/BackgroundServicesExtensions.cs
+// Host.Api/Program.cs
 builder.Services.AddHostedService<ExpiredTokenCleanupService>();
 ```
 
-### Regla crítica: IServiceScopeFactory
+### Regla crítica: nunca inyectar Scoped en Singleton
 
 ```csharp
-// ❌ NUNCA inyectar Scoped en Singleton — captive dependency
+// ❌ NUNCA — captive dependency
 public class MyBackgroundService : BackgroundService
 {
-    private readonly IExampleUserRepository _repo;  // Scoped inyectado en Singleton → excepción
+    private readonly IRefreshTokenRepository _repo;  // Scoped inyectado en Singleton → excepción
 }
 
-// ✓ Crear un scope por cada unidad de trabajo
+// ✓ Crear scope por cada unidad de trabajo
 await using var scope = _scopeFactory.CreateAsyncScope();
-var repo = scope.ServiceProvider.GetRequiredService<IExampleUserRepository>();
-// usar repo dentro del scope, el scope se dispone al salir del using
+var repo = scope.ServiceProvider.GetRequiredService<IRefreshTokenRepository>();
 ```
