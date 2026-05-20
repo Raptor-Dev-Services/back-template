@@ -13,7 +13,7 @@ Shared/Authentication/
 ├── Authentication.Contracts/      → UserShouldBeCreatedIntegrationEvent
 ├── Authentication.Domain/         → UserCredential, RefreshToken, interfaces de repositorio
 ├── Authentication.Application/    → LoginHandler, RegisterHandler, RefreshTokenHandler
-├── Authentication.Infrastructure/ → CredentialsSql, RefreshTokensSql, JwtTokenService, PasswordHasher
+├── Authentication.Infrastructure/ → CredentialRepository, RefreshTokenRepository, JwtTokenService, PasswordHasher
 ├── Authentication.Presentation/   → AuthController (Controllers/), Presenters, RequestBodies
 └── Authentication.Tests/          → tests de arquitectura (NetArchTest) + tests de handlers (NSubstitute)
 ```
@@ -94,7 +94,6 @@ La validación se registra en `Host.Api/Extensions/JwtAuthExtensions.cs`:
 | `email` | `string` | `credential.Email` |
 | `role` | `string` | `credential.Role` ("Admin" / "User") |
 | `tenant_id` | `long` (string) | `credential.TenantId` |
-| `branch_id` | `long` (string) | `credential.BranchId` |
 
 ---
 
@@ -113,10 +112,6 @@ bool isAdmin = User.IsInRole("Admin");
 // TenantId (como long)
 private long CurrentTenantId =>
     long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
-
-// BranchId (como long)
-private long CurrentBranchId =>
-    long.TryParse(User.FindFirstValue("branch_id"), out var id) ? id : 0;
 ```
 
 ---
@@ -128,7 +123,7 @@ Interfaz en `Authentication.Application/Services/IJwtTokenService.cs`:
 ```csharp
 public interface IJwtTokenService
 {
-    string GenerateAccessToken(Guid publicId, string email, string role, long tenantId, long branchId);
+    string GenerateAccessToken(Guid publicId, string email, string role, long tenantId);
     string GenerateRefreshToken();
     DateTime GetRefreshTokenExpiry();
 }
@@ -168,7 +163,7 @@ public async Task<LoginResponse> Handle(LoginRequest request, CancellationToken 
     if (credential is null || !_hasher.Verify(request.Password, credential.PasswordHash) || !credential.IsActive)
         return new LoginInvalidCredentialsFailure("Credenciales inválidas.");
 
-    var accessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId, credential.BranchId);
+    var accessToken  = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId);
     var refreshToken = _jwt.GenerateRefreshToken();
     var expiry       = _jwt.GetRefreshTokenExpiry();
 
@@ -192,7 +187,7 @@ public async Task<LoginResponse> Handle(LoginRequest request, CancellationToken 
 ```csharp
 // Después de crear la credencial:
 await _mediator.Publish(new UserShouldBeCreatedIntegrationEvent(
-    credential.PublicId, credential.TenantId, credential.BranchId, request.FullName));
+    credential.PublicId, credential.TenantId, request.FullName));
 ```
 
 ---
@@ -248,7 +243,6 @@ public async Task<IActionResult> Disable(Guid id, CancellationToken ct = default
   "email":     "usuario@empresa.com",
   "role":      "Admin",
   "tenant_id": "1",
-  "branch_id": "2",
   "jti":       "d4f7a2b1-...",
   "exp":       1746000000,
   "iss":       "back-template",

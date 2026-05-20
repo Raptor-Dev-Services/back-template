@@ -55,8 +55,6 @@ Verifican en tiempo de CI que nadie ha roto las reglas de dependencias. Si algui
 
 ### Los 7 tests por módulo
 
-Cada módulo tiene exactamente estos 7 tests:
-
 ```csharp
 // {Modulo}.Tests/Architecture/{Modulo}ArchitectureTests.cs
 using NetArchTest.Rules;
@@ -70,12 +68,10 @@ namespace Users.Tests.Architecture;
 
 public sealed class UsersArchitectureTests
 {
-    // Namespaces que se vigilan
     private const string ApplicationNs    = "Users.Application";
     private const string InfrastructureNs = "Users.Infrastructure";
     private const string PresentationNs   = "Users.Presentation";
 
-    // Assemblies que se inspeccionan — se obtienen via typeof de cualquier clase pública
     private static readonly Assembly DomainAssembly         = typeof(UserProfile).Assembly;
     private static readonly Assembly ApplicationAssembly    = typeof(GetUserProfileHandler).Assembly;
     private static readonly Assembly InfrastructureAssembly = typeof(UserProfileRepository).Assembly;
@@ -147,8 +143,6 @@ public sealed class UsersArchitectureTests
 
 ### Cómo elegir los tipos para los assemblies
 
-Usar cualquier tipo público de cada proyecto. El assembly es lo que importa, no el tipo específico.
-
 ```csharp
 // Domain: una Entity
 typeof(UserProfile).Assembly
@@ -156,23 +150,9 @@ typeof(UserProfile).Assembly
 // Application: un Handler
 typeof(GetUserProfileHandler).Assembly
 
-// Infrastructure: un Repository o una clase Sql
+// Infrastructure: un Repository
 typeof(UserProfileRepository).Assembly
-// o:
-typeof(UserProfilesSql).Assembly
 ```
-
-### Qué pasa cuando falla
-
-Si el test `Application_MustNot_DependOn_Infrastructure` falla, NetArchTest imprime exactamente qué clase en Application está importando Infrastructure:
-
-```
-Types that failed:
-- Users.Application.UseCases.GetUserProfile.GetUserProfileHandler
-  depends on: Users.Infrastructure.Persistence.SQLDB.UserProfilesSql
-```
-
-Eso señala exactamente dónde está la violación.
 
 ---
 
@@ -201,7 +181,7 @@ public sealed class GetUserProfileHandlerTests
     [Fact]
     public async Task Handle_WhenProfileExists_ReturnsSuccess()
     {
-        // Arrange — preparar el mock con datos de prueba
+        // Arrange
         var profile = new UserProfile
         {
             PublicId     = Guid.NewGuid(),
@@ -211,14 +191,14 @@ public sealed class GetUserProfileHandlerTests
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow
         };
-        _repo.GetByPublicIdAsync(profile.PublicId, 1, Arg.Any<CancellationToken>())
+        _repo.GetByPublicIdAsync(profile.PublicId, Arg.Any<CancellationToken>())
              .Returns(profile);
 
-        // Act — ejecutar el handler directamente (sin DI, sin mediator)
+        // Act
         var result = await new GetUserProfileHandler(_repo)
             .Handle(new GetUserProfileRequest(profile.PublicId, 1), default);
 
-        // Assert — verificar el tipo y los datos del resultado
+        // Assert
         var success = Assert.IsType<GetUserProfileSuccess>(result);
         Assert.NotNull(success.Data);
         Assert.Equal("John Doe", success.Data.FullName);
@@ -227,23 +207,18 @@ public sealed class GetUserProfileHandlerTests
     [Fact]
     public async Task Handle_WhenProfileNotFound_ReturnsNotFoundFailure()
     {
-        // Arrange — el repo devuelve null
-        _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+        _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
              .Returns((UserProfile?)null);
 
-        // Act
         var result = await new GetUserProfileHandler(_repo)
             .Handle(new GetUserProfileRequest(Guid.NewGuid(), 1), default);
 
-        // Assert — verificar que es el tipo de fallo correcto
         Assert.IsType<GetUserProfileNotFoundFailure>(result);
     }
 }
 ```
 
 ### Ejemplo con múltiples dependencias — LoginHandler
-
-Cuando el handler tiene varias interfaces, se mockean todas:
 
 ```csharp
 public sealed class LoginHandlerTests
@@ -270,7 +245,7 @@ public sealed class LoginHandlerTests
     {
         var credential = new UserCredential
         {
-            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1, BranchId = 1,
+            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1,
             Email = "user@test.com", PasswordHash = "hash", Role = "User", IsActive = true
         };
         _credentials.GetForLoginAsync("user@test.com", Arg.Any<CancellationToken>()).Returns(credential);
@@ -287,13 +262,12 @@ public sealed class LoginHandlerTests
     {
         var credential = new UserCredential
         {
-            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1, BranchId = 1,
+            Id = 1, PublicId = Guid.NewGuid(), TenantId = 1,
             Email = "user@test.com", PasswordHash = "hash", Role = "User", IsActive = true
         };
         _credentials.GetForLoginAsync("user@test.com", Arg.Any<CancellationToken>()).Returns(credential);
         _hasher.Verify("password", "hash").Returns(true);
-        _jwt.GenerateAccessToken(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(),
-                                 Arg.Any<long>(), Arg.Any<long>())
+        _jwt.GenerateAccessToken(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long>())
             .Returns("access-token");
         _jwt.GenerateRefreshToken().Returns("refresh-token");
         _jwt.GetRefreshTokenExpiry().Returns(DateTime.UtcNow.AddDays(7));
@@ -322,17 +296,16 @@ var repo = Substitute.For<IUserProfileRepository>();
 
 ```csharp
 // Retorno fijo
-repo.GetByPublicIdAsync(publicId, tenantId, Arg.Any<CancellationToken>())
+repo.GetByPublicIdAsync(publicId, Arg.Any<CancellationToken>())
     .Returns(profile);
 
 // Retorno null
-repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
     .Returns((UserProfile?)null);
 
-// Método void / Task sin retorno — no necesita .Returns()
-// Pero si quieres hacer que lance una excepción:
-repo.InsertAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-    .Returns(Task.FromException(new Exception("DB error")));
+// Lanzar excepción
+repo.InsertAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+    .Returns(Task.FromException<long>(new Exception("DB error")));
 ```
 
 ### Matchers — `Arg.*`
@@ -348,22 +321,12 @@ Usar `Arg.Any<CancellationToken>()` siempre que el método reciba un CT — el t
 ### Verificar que se llamó el método
 
 ```csharp
-// Verificar que se llamó exactamente 1 vez con esos argumentos
-await repo.Received(1).GetByPublicIdAsync(publicId, tenantId, Arg.Any<CancellationToken>());
+// Verificar que se llamó exactamente 1 vez
+await repo.Received(1).GetByPublicIdAsync(publicId, Arg.Any<CancellationToken>());
 
 // Verificar que nunca se llamó
-await repo.DidNotReceive().InsertAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+await repo.DidNotReceive().InsertAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
 ```
-
-### Comportamiento por defecto
-
-Sin configurar, NSubstitute devuelve:
-- `null` para reference types
-- `0` / `false` para value types
-- `Task.CompletedTask` para `Task`
-- `Task.FromResult(default(T))` para `Task<T>`
-
-Esto significa que no siempre es necesario configurar todos los métodos — solo los que el handler realmente llama en el camino que se está probando.
 
 ---
 
@@ -379,13 +342,13 @@ Regla simple: **un test por rama de lógica**.
 | Datos inválidos | Retorna `ValidationFailure` |
 | Condición de negocio especial | Un test por cada condición |
 
-**No testear:** implementaciones de repositorios, clases SQL, serialización JSON, comportamiento HTTP — eso no es responsabilidad del handler.
+**No testear:** implementaciones de repositorios, AppDbContext, serialización JSON, comportamiento HTTP — eso no es responsabilidad del handler.
 
 ---
 
 ## Tests de integración (con base de datos real)
 
-Los tests de integración usan PostgreSQL real. Se marcan con `[Trait("Category", "Integration")]` para poder separarlos de los unit tests.
+Los tests de integración usan PostgreSQL real. Se marcan con `[Trait("Category", "Integration")]`.
 
 ```bash
 # Levantar la DB
@@ -398,18 +361,18 @@ dotnet test --filter "Category=Integration"
 dotnet test --filter "Category=Unit"
 ```
 
-### DbFixture — conexión compartida
+### DbFixture — contexto EF Core compartido
 
 ```csharp
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
 using Shared.Database;
 
 namespace Users.Tests;
 
 public sealed class DbFixture
 {
-    public DapperDbConnection<MainDbConnection> Db { get; }
+    public AppDbContext Db { get; }
 
     public DbFixture()
     {
@@ -418,11 +381,15 @@ public sealed class DbFixture
             .AddEnvironmentVariables()
             .Build();
 
-        var factory = new DbConnectionFactory<MainDbConnection>(config);
-        Db = new DapperDbConnection<MainDbConnection>(
-            factory,
-            NullLogger<DapperDbConnection<MainDbConnection>>.Instance,
-            config);
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(config.GetConnectionString("MainDbConnection"))
+            .Options;
+
+        // TenantContextAccessor dummy para el fixture de tests
+        var tenantAccessor = new TenantContextAccessor();
+        tenantAccessor.Current = new TenantContext("1");
+
+        Db = new AppDbContext(options, tenantAccessor);
     }
 }
 ```
@@ -433,9 +400,6 @@ public sealed class DbFixture
 {
   "ConnectionStrings": {
     "MainDbConnection": "Host=localhost;Port=5432;Database=back_template_test;Username=postgres;Password=postgres"
-  },
-  "CustomLogging": {
-    "IncludeSqlText": false
   }
 }
 ```
@@ -446,25 +410,21 @@ public sealed class DbFixture
 [Trait("Category", "Integration")]
 public sealed class UserProfileRepositoryTests : IClassFixture<DbFixture>
 {
-    private readonly UserProfilesSql        _sql;
-    private readonly UserProfileRepository  _repo;
+    private readonly UserProfileRepository _repo;
 
     public UserProfileRepositoryTests(DbFixture fixture)
     {
-        _sql  = new UserProfilesSql(fixture.Db);
-        _repo = new UserProfileRepository(_sql);
+        _repo = new UserProfileRepository(fixture.Db);
     }
 
     [Fact]
     public async Task GetByPublicIdAsync_ReturnsNull_ForUnknownId()
     {
-        var profile = await _repo.GetByPublicIdAsync(Guid.NewGuid(), tenantId: 1);
+        var profile = await _repo.GetByPublicIdAsync(Guid.NewGuid());
         Assert.Null(profile);
     }
 }
 ```
-
-**`IClassFixture<T>`:** xUnit crea una sola instancia de `DbFixture` para todos los tests de la clase. Así se abre la conexión una sola vez, no por cada test.
 
 ---
 
@@ -543,7 +503,7 @@ start coverage/report/index.html
 | Handler tests | Instanciar el handler directamente con `new` — sin DI container |
 | CancellationToken | Pasar `default` en el Act; usar `Arg.Any<CancellationToken>()` en el Arrange |
 | Datos de prueba | Inline en el test — sin builders externos para tests unitarios simples |
-| Sin SQL real | Los unit tests nunca tocan la base de datos |
+| Sin DB real | Los unit tests nunca tocan la base de datos ni `AppDbContext` |
 
 ---
 
@@ -554,5 +514,5 @@ start coverage/report/index.html
 | Reglas de dependencias (Domain no toca Infrastructure, etc.) | Architecture | NetArchTest.Rules |
 | Lógica del handler (happy path, not found, conflict) | Unit | xUnit + NSubstitute |
 | Lógica de dominio pura (entidades con comportamiento) | Unit | xUnit |
-| Queries SQL (insertar, buscar, actualizar) | Integration | xUnit + DB real |
+| Queries EF Core (insertar, buscar, actualizar) | Integration | xUnit + DB real |
 | Endpoints HTTP completos | Integration | xUnit + WebApplicationFactory |

@@ -14,7 +14,6 @@ using Common.Logging;
 using Common.Messaging;
 using Common.MultiTenancy;
 using Common.Observability;
-using Common.PostgreSql;
 using Common.Web;
 using Host.Api.Extensions;
 using Host.Api.Middleware;
@@ -38,9 +37,10 @@ builder.Services.AddObservability(builder.Configuration);
 // ─────────────────────────────────────────────
 // 2. INFRAESTRUCTURA COMPARTIDA
 // ─────────────────────────────────────────────
-builder.Services.AddMainDatabase();   // DbConnectionFactory<T> + DapperDbConnection<T>
-
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
+
+// AppDbContext + DatabaseInitializationService (EnsureCreated al startup)
+builder.Services.AddMainDatabase(builder.Configuration);
 
 // ─────────────────────────────────────────────
 // 3. MEDIATOR — UNA SOLA LLAMADA con todos los
@@ -71,7 +71,6 @@ builder.Services.AddAuthenticationWebApiServices();
 // ─────────────────────────────────────────────
 // 5. INFRAESTRUCTURA DEL HOST
 // ─────────────────────────────────────────────
-builder.Services.AddSchemaMigrations();           // ejecuta *.sql al iniciar
 builder.Services.AddHealthServices(builder.Configuration);
 
 builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -127,9 +126,9 @@ app.Run();
 
 ### 2. Infraestructura compartida
 
-`AddMainDatabase()` registra `DbConnectionFactory<T>` (Singleton) y `DapperDbConnection<T>` (Scoped) como open generics. Debe estar antes que los módulos porque sus `ServiceCollectionEx` de Infrastructure dependen de estos tipos para inyectar `DapperDbConnection<MainDbConnection>`.
+`ITenantContextAccessor` debe registrarse antes que `AddMainDatabase` porque el `AppDbContext` lo inyecta vía constructor (en realidad el factory captura la lambda, pero el scope se crea antes del request).
 
-`ITenantContextAccessor` también es Singleton y debe estar disponible cuando el middleware `TenantClaimsMiddleware` lo inyecte.
+`AddMainDatabase(builder.Configuration)` registra `AppDbContext` como Scoped (via `AddDbContext`) y registra `DatabaseInitializationService` como `IHostedService`. Al iniciar la app, este servicio crea un scope, establece un tenant dummy `"0"`, y llama `EnsureCreatedAsync()` para crear las tablas.
 
 ### 3. Mediator — por qué una sola llamada
 
@@ -149,14 +148,14 @@ Cada módulo expone tres extension methods:
 | Método | Qué registra |
 |--------|-------------|
 | `Add{Modulo}ApplicationServices()` | Servicios propios de Application (generalmente vacío) |
-| `Add{Modulo}InfrastructureServices()` | Clases `...Sql` + repositorios concretos |
+| `Add{Modulo}InfrastructureServices()` | Repositorios concretos (que inyectan `AppDbContext`) |
 | `Add{Modulo}WebApiServices()` | `ResultViewModel<>` + presenters + `AddApplicationPart` |
 
 `AddApplicationPart` en la línea de `AddUsersWebApiServices()` es lo que hace que ASP.NET Core descubra los controllers de ese módulo. Sin esa línea, `UsersController` no sería encontrado porque no está en el ensamblado de `Host.Api`.
 
 ### 5. Infraestructura del host
 
-`AddSchemaMigrations()` registra un `IHostedService` que al iniciar la app recorre los archivos `.sql` de `Host.Api/Services/Schema Migration/Tables/` ordenados alfabéticamente y ejecuta los que aún no ha aplicado. Trackea el estado en la tabla `dbo.SchemaMigrations`.
+`AddHealthServices` configura el health check de PostgreSQL. Los demás registros son JWT, CORS, y Swagger.
 
 ### 6. Swagger condicional
 
@@ -178,11 +177,13 @@ UseAuthentication       ← verifica y decodifica el JWT → llena HttpContext.U
 UseAuthorization        ← verifica [Authorize] y roles → 401/403 si falla
     ↓
 TenantClaimsMiddleware  ← lee tenant_id de HttpContext.User (ya autenticado)
+                          → alimenta ITenantContextAccessor
+                          → el AppDbContext del request ya puede usarlo
     ↓
 MapControllers          ← enruta al controller correcto
 ```
 
-**Por qué `TenantClaimsMiddleware` va después de `UseAuthorization`:** el middleware lee claims del JWT. Si va antes de `UseAuthentication`, `HttpContext.User` todavía no tiene los claims — `User.FindFirst("tenant_id")` devuelve null.
+**Por qué `TenantClaimsMiddleware` va después de `UseAuthorization`:** el middleware lee claims del JWT. Si va antes de `UseAuthentication`, `HttpContext.User` todavía no tiene los claims — `User.FindFirst("tenant_id")` devuelve null. Además, necesita ir después de `UseAuthorization` para que endpoints anónimos (login) no fallen por un tenant vacío.
 
 **Por qué `UseCoreProblemDetails` va primero:** actúa como un try-catch global que envuelve todo el pipeline. Si cualquier middleware o controller lanza una excepción no capturada, la convierte en una respuesta RFC 7807 con el status code correcto.
 
@@ -206,7 +207,7 @@ builder.Services.AddMediator(
 ```csharp
 builder.Services.AddInventoryApplicationServices();
 builder.Services.AddInventoryInfrastructureServices();
-builder.Services.AddInventoryPresentationServices();
+builder.Services.AddInventoryWebApiServices();
 ```
 
 Eso es todo. No hay nada más que tocar en Program.cs.
@@ -217,7 +218,7 @@ Eso es todo. No hay nada más que tocar en Program.cs.
 
 - Lógica de negocio — va en handlers
 - Configuración de cada módulo — va en su `ServiceCollectionEx`
-- SQL o acceso a datos — va en clases `...Sql`
+- Acceso a datos — va en repositorios vía `AppDbContext`
 - Validaciones de request — van en handlers o middleware específico
 
 Program.cs es solo composición: conecta las piezas, no implementa nada.

@@ -28,8 +28,8 @@ git submodule status
 | `Common.Results` | Interfaces de resultado: ISuccess, IFailure, INotFoundFailure, etc. |
 | `Common.ViewModels` | ResultViewModel\<T\> — respuesta HTTP estandarizada |
 | `Common.Abstractions` | IPresenter\<T\>, IInteractor\<TRequest, TResponse\> |
-| `Common.Data` | DapperSqlDbConnectionBase, IOpenDbConnectionFactory |
-| `Common.PostgreSql` | ConfigurationNpgsqlConnectionFactory\<T\>, SchemaMigrationHostedService |
+| `Common.Data` | DapperSqlDbConnectionBase, IOpenDbConnectionFactory _(no usado — EF Core)_ |
+| `Common.PostgreSql` | ConfigurationNpgsqlConnectionFactory\<T\>, SchemaMigrationHostedService _(no usado — EF Core)_ |
 | `Common.Logging` | AddLoggingServices() — Serilog + Seq |
 | `Common.Observability` | AddObservability() — OpenTelemetry + Prometheus |
 | `Common.Web` | Middleware: CorrelationId, ProblemDetails |
@@ -212,57 +212,15 @@ public interface IPresenter<TResult> : INotificationHandler<TResult>
 
 ---
 
-## Common.Data
+## Common.Data _(no usado en este proyecto)_
 
-### IOpenDbConnectionFactory
-
-```csharp
-public interface IOpenDbConnectionFactory
-{
-    Task<IDbConnection> GetOpenConnectionAsync(CancellationToken cancellationToken = default);
-}
-```
-
-`MainDbConnectionFactory` implementa esta interfaz. Registrado como alias Singleton en `Shared.Database/ServiceCollectionEx.cs`:
-
-```csharp
-services.AddSingleton<IOpenDbConnectionFactory>(sp => sp.GetRequiredService<MainDbConnectionFactory>());
-```
-
-Solo para transacciones manuales (ver [DB.md](DB.md)).
+`Common.Data` expone `IOpenDbConnectionFactory` y `DapperSqlDbConnectionBase` — abstracciones sobre Dapper/Npgsql. En la configuración actual con EF Core, **no se usan**. La conexión a PostgreSQL la gestiona `AppDbContext` vía `Npgsql.EntityFrameworkCore.PostgreSQL`.
 
 ---
 
-## Common.PostgreSql
+## Common.PostgreSql _(no usado en este proyecto)_
 
-### ConfigurationNpgsqlConnectionFactory\<TConnectionName\>
-
-El tipo genérico es la **clase marcadora** cuyo nombre se usa como clave en `ConnectionStrings`:
-
-```csharp
-// Clase marcadora — el nombre "MainDbConnection" es la clave de configuración
-public sealed class MainDbConnection;
-
-// Fábrica — hereda la fábrica genérica con el marcador
-public sealed class MainDbConnectionFactory : ConfigurationNpgsqlConnectionFactory<MainDbConnection>
-{
-    public MainDbConnectionFactory(IConfiguration configuration) : base(configuration) { }
-}
-```
-
-Internamente lee:
-```csharp
-configuration.GetConnectionString("MainDbConnection")
-```
-
-### SchemaMigrationHostedService
-
-Servicio en segundo plano que ejecuta los `.sql` de `Host.Api/Services/Schema Migration/Tables/` ordenados alfabéticamente al iniciar. Crea `dbo.SchemaMigrations` para trackear qué scripts ya aplicó.
-
-```csharp
-// Host.Api/Program.cs
-builder.Services.AddSchemaMigrations();
-```
+`Common.PostgreSql` expone `ConfigurationNpgsqlConnectionFactory<T>` y `SchemaMigrationHostedService` — fábrica de conexiones Dapper y migración SQL por scripts. En la configuración actual con EF Core, **no se usan**. El esquema se inicializa con `DatabaseInitializationService` (`EnsureCreatedAsync()`).
 
 ---
 
@@ -301,7 +259,7 @@ app.MapPrometheusScrapingEndpoint();
 
 ## Common.MultiTenancy
 
-`ITenantContextAccessor` permite propagar `TenantId` y `BranchId` en el contexto de Serilog y OpenTelemetry.
+`ITenantContextAccessor` permite propagar el `TenantId` actual en el contexto de Serilog, OpenTelemetry y el global query filter de EF Core.
 
 En este proyecto se registra directamente (sin llamar a `AddMultiTenancy()` completo):
 
@@ -342,7 +300,7 @@ Lee `X-Correlation-Id` del request (o genera un GUID nuevo), propaga el header e
 | `AddMediator(assembly1, assembly2, ...)` | `Host.Api/Program.cs` | Registrar mediator + handlers de todos los módulos |
 | `AddLoggingServices(config)` | `Host.Api/Program.cs` | Serilog + Seq |
 | `AddObservability(config)` | `Host.Api/Program.cs` | OpenTelemetry + Prometheus |
-| `AddSchemaMigrations()` | `Host.Api/Program.cs` | Migraciones SQL automáticas |
+| ~~`AddSchemaMigrations()`~~ | ~~`Host.Api/Program.cs`~~ | _(reemplazado por `DatabaseInitializationService`)_ |
 | `UseCoreProblemDetails()` | `Host.Api/Program.cs` | Middleware de errores RFC 7807 |
 | `UseCorrelationId()` | `Host.Api/Program.cs` | Middleware de correlation ID |
 | `AddValidatedOptions<T>(section)` | Cualquier ServiceCollectionEx | Options con validación |

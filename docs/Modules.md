@@ -208,9 +208,6 @@ Inventory.Application/
 **Infrastructure:**
 ```
 Inventory.Infrastructure/
-├── Persistence/
-│   └── SQLDB/
-│       └── ItemsSql.cs
 ├── Repositories/
 │   └── ItemRepository.cs
 └── ServiceCollectionEx.cs
@@ -254,7 +251,6 @@ public static class ServiceCollectionEx
 ```csharp
 public static IServiceCollection AddInventoryInfrastructureServices(this IServiceCollection services)
 {
-    services.AddScoped<ItemsSql>();
     services.AddScoped<IItemRepository, ItemRepository>();
     return services;
 }
@@ -286,6 +282,7 @@ public sealed class InventoryArchitectureTests
     private static readonly Assembly Application    = typeof(GetItemHandler).Assembly;
     private static readonly Assembly Infrastructure = typeof(ItemRepository).Assembly;
     private static readonly Assembly Presentation   = typeof(InventoryController).Assembly;
+
 
     [Fact]
     public void Domain_should_not_depend_on_Application() =>
@@ -582,15 +579,15 @@ Si dos módulos submódulo en el mismo monolito apuntan a SHAs distintos de `Com
 
 ### Shared.Database — según contexto
 
-`Shared.Database` contiene `DapperDbConnection<T>`, `DbConnectionFactory<T>` y los marcadores de BD (`MainDbConnection`, `ReadonlyDbConnection`).
+`Shared.Database` contiene `AppDbContext` y todas las `EntityTypeConfigurations`. Al ser el punto central de acceso a datos, todos los módulos Infrastructure lo referencian.
 
 | Escenario | Estrategia |
 |-----------|-----------|
-| Módulo standalone sin más consumidores | Copia como código fuente |
+| Módulo standalone sin más consumidores | Copia `Shared.Database` como código fuente e incluye las configs del módulo |
 | Módulo compartido entre 2+ monolitos | Submódulo Git o paquete NuGet privado |
 | Equipo dedicado con CI/CD de paquetes | Paquete NuGet privado (Azure Artifacts / GitHub Packages) |
 
-Si el módulo define sus propios marcadores de BD (e.g., `InventoryDbConnection`) distintos de los del monolito, agregarlos en `Shared.Database` del módulo sin afectar al monolito — los marcadores son clases vacías sin lógica.
+Al agregar una entidad nueva en un módulo extraído, su `IEntityTypeConfiguration<T>` debe incluirse en el `Shared.Database` del contexto donde se despliegue.
 
 ### Shared.Web — copia o submódulo
 

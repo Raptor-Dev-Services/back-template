@@ -236,7 +236,7 @@ Entorno y configuración:
 
 Base de datos:
 [ ] Backup antes de cada deploy
-[ ] Migraciones SQL verificadas (idempotentes en Host.Api/Services/Schema Migration/)
+[ ] DatabaseInitializationService verificado — EnsureCreatedAsync() arranca sin errores en staging
 [ ] Usuario de DB con permisos mínimos (no superuser)
 
 Seguridad:

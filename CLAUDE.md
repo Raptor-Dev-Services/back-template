@@ -36,39 +36,40 @@ back-template/
 ├── Common/                                          → Submódulo Git (NO editar)
 ├── Shared/
 │   ├── Database/                                    → Infraestructura DB compartida (sin ASP.NET)
-│   │   ├── MainDbConnection.cs                      ← Marcador BD principal
-│   │   ├── ReadonlyDbConnection.cs                  ← Marcador BD secundaria (ejemplo)
-│   │   ├── DbConnectionFactory.cs                   ← Factory genérica open-generic
-│   │   ├── DapperDbConnection.cs                    ← Conexión genérica open-generic
-│   │   └── ServiceCollectionEx.cs                   → AddMainDatabase()
+│   │   ├── AppDbContext.cs                          ← DbContext central con todos los DbSets
+│   │   ├── EntityTypeConfigurations/               ← IEntityTypeConfiguration<T> por entidad
+│   │   │   ├── TenantConfiguration.cs
+│   │   │   ├── UserCredentialConfiguration.cs
+│   │   │   ├── RefreshTokenConfiguration.cs
+│   │   │   └── UserProfileConfiguration.cs
+│   │   └── ServiceCollectionEx.cs                   → AddMainDatabase(config)
 │   └── Web/                                         → Infraestructura web compartida (con ASP.NET)
 │       └── BaseApiController.cs                     → namespace Shared.Web
 ├── Modules/
-│   ├── Tenancy/                                     → Módulo Tenancy (Tenant + Branch)
+│   ├── Tenancy/                                     → Módulo Tenancy (solo Tenant)
 │   │   ├── Tenancy.Contracts/                       → DTOs + Integration Events (POCO, sin deps)
 │   │   ├── Tenancy.Domain/                          → Entidades + interfaces de repositorio
 │   │   ├── Tenancy.Application/                     → Use cases (TenancyApi)
-│   │   ├── Tenancy.Infrastructure/                  → SQL objects + repositorios
+│   │   ├── Tenancy.Infrastructure/                  → Repositorios con AppDbContext
 │   │   ├── Tenancy.Presentation/                    → Controllers + ServiceCollectionEx
 │   │   └── Tenancy.Tests/                           → Tests arquitectura + unitarios
 │   └── Users/                                       → Módulo Users (perfiles de usuario)
 │       ├── Users.Contracts/                         → UserProfileDto + Integration Events
 │       ├── Users.Domain/                            → UserProfile entity + IUserProfileRepository
 │       ├── Users.Application/                       → GetUserProfile, GetUserProfiles, Update, Disable
-│       ├── Users.Infrastructure/                    → UserProfilesSql + UserProfileRepository
+│       ├── Users.Infrastructure/                    → UserProfileRepository con AppDbContext
 │       ├── Users.Presentation/                      → UsersController + 4 Presenters
 │       └── Users.Tests/                             → Tests arquitectura (7) + unitarios (2)
 ├── Shared/Authentication/                           → Módulo compartido Auth
 │   ├── Authentication.Contracts/                    → TokenDto + UserShouldBeCreatedIntegrationEvent
 │   ├── Authentication.Domain/                       → UserCredential + RefreshToken entities
 │   ├── Authentication.Application/                  → Login + Register + RefreshToken handlers
-│   ├── Authentication.Infrastructure/               → CredentialsSql + RefreshTokensSql + JWT + BCrypt
+│   ├── Authentication.Infrastructure/               → Repositorios + JWT + BCrypt con AppDbContext
 │   ├── Authentication.Presentation/                 → AuthController + 3 Presenters
 │   └── Authentication.Tests/                        → Tests arquitectura (7) + unitarios (3)
 └── Host.Api/                                        → Punto de entrada — Program.cs
     ├── Extensions/                                  → JWT, CORS, Swagger, Health
     ├── Middleware/TenantClaimsMiddleware.cs          → Extrae tenant_id del JWT
-    ├── Services/Schema Migration/Tables/*.sql        → Migraciones automáticas al startup
     └── appsettings.*.json
 ```
 
@@ -81,8 +82,7 @@ back-template/
 | Runtime | .NET 10 / C# 13 |
 | Framework | ASP.NET Core 10 |
 | Base de datos | PostgreSQL 17 |
-| ORM | Dapper (raw SQL parametrizado) |
-| Driver | Npgsql 10 |
+| ORM | EF Core 10 (Npgsql 10.0.1) |
 | Mediator | Custom — `Common.Messaging` (NO MediatR NuGet) |
 | Auth | JWT Bearer HS256 |
 | Passwords | BCrypt.Net-Next (workFactor: 12) |
@@ -95,68 +95,68 @@ back-template/
 
 ---
 
-## REGLA DE ORO — Acceso a datos: `DapperDbConnection<T>`
+## REGLA DE ORO — Acceso a datos: `AppDbContext`
 
-**Todo SQL del proyecto pasa obligatoriamente por `DapperDbConnection<T>`** de `Shared/Database`.
+**Todo acceso a datos pasa por `AppDbContext`** de `Shared/Database`.
 
 ### Cadena completa
 
 ```
-ConnectionStrings:{T.Name}  (appsettings.json)
+ConnectionStrings:MainDbConnection  (appsettings.json)
     ↓
-DbConnectionFactory<T>       (lee la cadena por typeof(T).Name — singleton)
+AppDbContext                        (EF Core DbContext — Scoped)
     ↓
-DapperDbConnection<T>        (ejecuta Dapper + logs de performance — scoped)
+{Entidad}Repository                 (inyecta AppDbContext directamente)
     ↓
-{Entidad}Sql classes          (inyectan DapperDbConnection<{Marcador}>)
+Handler                             (lógica de negocio)
 ```
 
-### Marcadores de base de datos
+### AppDbContext — DbSets y filtros globales
 
-| Marcador | Clave appsettings | Base | Acceso |
-|----------|-------------------|------|--------|
-| `MainDbConnection` | `ConnectionStrings:MainDbConnection` | PostgreSQL principal | Lectura/Escritura |
-| `ReadonlyDbConnection` | `ConnectionStrings:ReadonlyDbConnection` | Réplica de lectura | Solo lectura |
+`AppDbContext` vive en `Shared/Database/AppDbContext.cs` y tiene:
 
-Para agregar una nueva BD: crear un archivo marcador `{Nombre}DbConnection.cs` con clase vacía `public sealed class {Nombre}DbConnection;` y agregar la cadena de conexión en `appsettings.json`. No es necesario registrar nada en DI — los open generics lo resuelven automáticamente.
-
-### Clases `...Sql`
-
-Cada tabla tiene una clase `{Entidad}Sql` bajo `{Modulo}.Infrastructure/Persistence/SQLDB/`:
-
-- Recibe `DapperDbConnection<MainDbConnection>` por constructor.
-- Agrupa **todos** los queries de esa tabla — ninguno fuera de ella.
-- SQL como raw strings `"""..."""`. Nunca concatenación ni interpolación.
-- Parámetros siempre como objeto anónimo `new { param }`.
-- Retorna entidades de dominio directamente.
+- Un `DbSet<T>` por cada entidad persistida.
+- Global query filters de TenantId para `UserCredential` y `UserProfile` — se aplican automáticamente.
+- `IgnoreQueryFilters()` en los repositorios de auth (login/refresh no tienen tenant aún).
 
 ```csharp
-public sealed class UserProfilesSql
+public sealed class AppDbContext : DbContext
 {
-    private readonly DapperDbConnection<MainDbConnection> _db;
-    public UserProfilesSql(DapperDbConnection<MainDbConnection> db) => _db = db;
+    private readonly ITenantContextAccessor _tenantAccessor;
 
-    public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
-        _db.QuerySingleAsync<UserProfile>(
-            """
-            SELECT Id, PublicId, TenantId, BranchId, FullName, IsActive, CreatedAtUtc, UpdatedAtUtc
-            FROM dbo.UserProfiles
-            WHERE PublicId = @publicId AND TenantId = @tenantId AND IsActive = TRUE;
-            """,
-            new { publicId, tenantId },
-            cancellationToken: ct);
+    public DbSet<Tenant>         Tenants       { get; set; } = null!;
+    public DbSet<UserCredential> Credentials   { get; set; } = null!;
+    public DbSet<RefreshToken>   RefreshTokens { get; set; } = null!;
+    public DbSet<UserProfile>    UserProfiles  { get; set; } = null!;
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, ITenantContextAccessor tenantAccessor)
+        : base(options) { _tenantAccessor = tenantAccessor; }
+
+    private long CurrentTenantId =>
+        long.TryParse(_tenantAccessor.Current?.TenantId, out var id) ? id : 0L;
+
+    protected override void OnModelCreating(ModelBuilder mb)
+    {
+        mb.HasDefaultSchema("dbo");
+        mb.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+        mb.Entity<UserCredential>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        mb.Entity<UserProfile>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+    }
 }
 ```
 
-**Métodos disponibles en `DapperDbConnection<T>`:**
+### Patrones de acceso en repositorios
 
-| Método | Retorno | Uso |
-|--------|---------|-----|
-| `QueryAsync<T>` | `Task<IEnumerable<T>>` | Múltiples filas |
-| `QuerySingleAsync<T>` | `Task<T?>` | 0 o 1 fila |
-| `QueryFirstAsync<T>` | `Task<T?>` | Primera fila o null |
-| `ExecuteAsync` | `Task<int>` | INSERT / UPDATE / DELETE |
-| `ExecuteScalarAsync<T>` | `Task<T>` | COUNT, EXISTS, escalar |
+| Operación | Patrón EF Core |
+|-----------|---------------|
+| Lectura única | `await _db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(e => e.PublicId == id, ct)` |
+| Lectura lista | `await _db.UserProfiles.AsNoTracking().ToListAsync(ct)` |
+| Insertar | `_db.UserProfiles.Add(entity); await _db.SaveChangesAsync(ct)` |
+| Actualizar (propiedades `init`) | `await _db.UserProfiles.Where(...).ExecuteUpdateAsync(s => s.SetProperty(...), ct)` |
+| Soft delete | `await _db.UserProfiles.Where(...).ExecuteUpdateAsync(s => s.SetProperty(e => e.IsActive, false), ct)` |
+| Sin filtro tenant (auth) | `_db.Credentials.IgnoreQueryFilters().FirstOrDefaultAsync(...)` |
+
+**Regla absoluta:** los repositorios usan `AppDbContext` directamente — no hay clases intermedias `...Sql`. El repositorio ES la única capa de acceso a datos.
 
 ---
 
@@ -230,7 +230,7 @@ public sealed class GetUserProfileHandler : IRequestHandler<GetUserProfileReques
     public async Task<GetUserProfileResponse> Handle(
         GetUserProfileRequest request, CancellationToken cancellationToken)
     {
-        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, request.TenantId, cancellationToken);
+        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, cancellationToken);
         if (profile is null)
             return new GetUserProfileNotFoundFailure("Perfil no encontrado.");
         return new GetUserProfileSuccess(new UserProfileDto(...));
@@ -342,7 +342,6 @@ Ejemplo real: `Authentication` referencia `Tenancy.Contracts.Interfaces.ITenancy
 // {Modulo}.Infrastructure/ServiceCollectionEx.cs
 public static IServiceCollection Add{Modulo}InfrastructureServices(this IServiceCollection services)
 {
-    services.AddScoped<UserProfilesSql>();
     services.AddScoped<IUserProfileRepository, UserProfileRepository>();
     return services;
 }
@@ -358,7 +357,7 @@ public static IServiceCollection Add{Modulo}WebApiServices(this IServiceCollecti
 }
 
 // Host.Api/Program.cs
-builder.Services.AddMainDatabase();
+builder.Services.AddMainDatabase(builder.Configuration);
 builder.Services.AddMediator(
     typeof(Tenancy.Application.ServiceCollectionEx).Assembly,
     typeof(Users.Application.ServiceCollectionEx).Assembly,
@@ -377,45 +376,39 @@ builder.Services.AddUsersWebApiServices();
 
 | Tipo | Lifetime |
 |------|----------|
-| `DbConnectionFactory<>` | Singleton (open generic) |
-| `DapperDbConnection<>` | Scoped (open generic) |
-| `...Sql`, repositorios, presenters, `ResultViewModel<>` | Scoped |
+| `AppDbContext` | Scoped (registrado por `AddDbContext`) |
+| Repositorios, presenters, `ResultViewModel<>` | Scoped |
 | `IRequestHandler<,>` | Scoped (auto por `AddMediator`) |
+| `ITenantContextAccessor` | Singleton |
 
 ---
 
 ## Multi-tenancy
 
-Tenant = empresa / Branch = sucursal. Llegan al backend vía claims JWT:
+Tenant = empresa. Llega al backend vía claims JWT:
 - `tenant_id` → BIGINT como string en el claim
-- `branch_id` → BIGINT como string en el claim
 
-El controller extrae los claims con `User.FindFirstValue("tenant_id")`.
-`TenantClaimsMiddleware` los inyecta en `ITenantContextAccessor` para Serilog y OpenTelemetry.
+El controller extrae el claim con `User.FindFirstValue("tenant_id")`.
+`TenantClaimsMiddleware` lo inyecta en `ITenantContextAccessor` para el global query filter de EF Core y para Serilog/OpenTelemetry.
+
+El global query filter en `AppDbContext` aplica `WHERE TenantId = @currentTenantId` automáticamente en todas las consultas sobre `UserCredential` y `UserProfile`. Para los repositorios de auth (login/refresh), usar `IgnoreQueryFilters()` porque no hay tenant en ese momento.
 
 ---
 
-## Migraciones de esquema (PostgreSQL)
+## Esquema de BD (EF Core EnsureCreated)
 
-Viven en `Host.Api/Services/Schema Migration/Tables/`. Se ejecutan automáticamente al iniciar.
+Las tablas se crean al iniciar la aplicación mediante `DatabaseInitializationService` → `db.Database.EnsureCreatedAsync()`. Las configuraciones de columnas/índices viven en `EntityTypeConfigurations/`.
 
-**Numeración:** bloques de 10 por entidad. `NNN_<tabla>.sql` + `NNN+1_<tabla>_indexes.sql`.
+**Tablas actuales:**
 
-| Bloque | Tabla | Módulo |
-|--------|-------|--------|
-| 001-002 | `dbo.Tenants` | Tenancy |
-| 010-011 | `dbo.Branches` | Tenancy |
-| 020-021 | `dbo.Credentials` | Authentication |
-| 030-031 | `dbo.UserProfiles` | Users |
-| 040-041 | `dbo.RefreshTokens` | Authentication |
+| Tabla | Módulo dueño | Descripción |
+|-------|-------------|-------------|
+| `dbo.tenants` | Tenancy | Empresas SaaS |
+| `dbo.credentials` | Authentication | Login (Email, PasswordHash, Role, TenantId) |
+| `dbo.user_profiles` | Users | Datos de perfil (PublicId, FullName, TenantId) |
+| `dbo.refresh_tokens` | Authentication | Tokens JWT con FK a credentials |
 
-**Próxima entidad libre: bloque 050.**
-
-**Reglas:**
-- Todos los archivos son idempotentes: `CREATE TABLE IF NOT EXISTS`.
-- Nunca editar migraciones ya aplicadas — nueva migración con número mayor.
-- Esquema `dbo` para todas las tablas.
-- Fechas UTC: `TIMESTAMP(0) NOT NULL DEFAULT (timezone('utc', now()))`.
+> Para agregar una tabla nueva: crear la entidad en Domain, su `IEntityTypeConfiguration<T>` en `Shared/Database/EntityTypeConfigurations/`, y dejar que `EnsureCreated` la materialice en el próximo arranque.
 
 ---
 
@@ -438,7 +431,7 @@ private readonly IUserProfileRepository _repo = Substitute.For<IUserProfileRepos
 [Fact]
 public async Task Handle_WhenProfileExists_ReturnsSuccess()
 {
-    _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
+    _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
         .Returns(new UserProfile { FullName = "John" });
 
     var result = await new GetUserProfileHandler(_repo)
@@ -462,8 +455,7 @@ public async Task Handle_WhenProfileExists_ReturnsSuccess()
 | Presenter | `{Accion}Presenter` | `GetUserProfilePresenter` |
 | Request body | `{Accion}Body` | `UpdateUserProfileBody` |
 | Controller | `{Modulo}Controller` | `UsersController` |
-| SQL object | `{Entidad}Sql` | `UserProfilesSql` |
-| Marcador BD | `{Nombre}DbConnection` | `MainDbConnection` |
+| Entity config | `{Entidad}Configuration` | `UserProfileConfiguration` |
 | Repositorio interfaz | `I{Entidad}Repository` | `IUserProfileRepository` |
 | DTO | `{Entidad}Dto` | `UserProfileDto` |
 | Evento de integración | `{Accion}IntegrationEvent` | `UserShouldBeCreatedIntegrationEvent` |
@@ -477,6 +469,7 @@ public async Task Handle_WhenProfileExists_ReturnsSuccess()
 - Refresh: `POST /api/auth/refresh`.
 - Roles: `[Authorize(Roles = "Admin")]` para endpoints de escritura.
 - Nunca poner secretos JWT en `appsettings*.json`.
+- Claims en el JWT: `sub` (PublicId), `email`, `role`, `tenant_id`. **No hay `branch_id`.**
 
 ---
 
@@ -495,7 +488,7 @@ public async Task Handle_WhenProfileExists_ReturnsSuccess()
 2. `Application` nunca referencia `Infrastructure`.
 3. `Infrastructure` nunca referencia `Application`.
 4. El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**.
-5. Todo SQL vive en clases `...Sql` — cero SQL inline en repositorios, handlers o servicios.
+5. Todo acceso a datos pasa por `AppDbContext` inyectado en el repositorio — cero SQL inline en handlers o servicios.
 6. Toda respuesta HTTP pasa por `ResultViewModel<TController>` — nunca retornar datos directos.
 7. No secretos en `appsettings*.json` — variables de entorno.
 8. **PROHIBIDO modificar el submódulo `Common`** desde este repositorio.
@@ -508,15 +501,15 @@ public async Task Handle_WhenProfileExists_ReturnsSuccess()
 
 ## Flujo para cambios funcionales
 
-**Antes:** trazar el flujo completo. Identificar módulo, tabla y base de datos.
+**Antes:** trazar el flujo completo. Identificar módulo y entidad.
 
 **Durante (por capas):**
 
-1. Nueva tabla → `Host.Api/Services/Schema Migration/Tables/NNN_tabla.sql` + `NNN+1_tabla_indexes.sql`
-2. DTO público → `{Modulo}.Contracts/Dtos/`
-3. Entidad → `{Modulo}.Domain/Entities/` + interfaz en `{Modulo}.Domain/Repositories/`
-4. `...Sql` → `{Modulo}.Infrastructure/Persistence/SQLDB/` inyectando `DapperDbConnection<MainDbConnection>`
-5. Repositorio → `{Modulo}.Infrastructure/Repositories/` + DI en `{Modulo}.Infrastructure/ServiceCollectionEx.cs`
+1. Entidad nueva → `{Modulo}.Domain/Entities/` + interfaz en `{Modulo}.Domain/Repositories/`
+2. Configuración EF Core → `Shared/Database/EntityTypeConfigurations/{Entidad}Configuration.cs`
+3. `DbSet<T>` → agregar en `AppDbContext` + query filter si aplica
+4. DTO público → `{Modulo}.Contracts/Dtos/`
+5. Repositorio → `{Modulo}.Infrastructure/Repositories/` usando `AppDbContext` + DI en `{Modulo}.Infrastructure/ServiceCollectionEx.cs`
 6. Caso de uso → `{Modulo}.Application/UseCases/{Accion}/` (Request + Handler + Responses/)
 7. Presenter → `{Modulo}.Presentation/Presenters/` + registro **manual** en `{Modulo}.Presentation/ServiceCollectionEx.cs`
 8. Controller (o endpoint) → `{Modulo}.Presentation/Controllers/{Modulo}Controller.cs` extendiendo `BaseApiController`

@@ -11,8 +11,7 @@ Guía de referencia para agregar funcionalidad al backend. Todo código generado
 | Runtime | .NET 10 / C# 13 |
 | Framework | ASP.NET Core 10 |
 | Base de datos | PostgreSQL 17 |
-| ORM | Dapper (raw SQL parametrizado) |
-| Driver | Npgsql 10 |
+| ORM | EF Core 10 (Npgsql 10.0.1) |
 | Mediator | Custom — `Common.Messaging` (NO MediatR NuGet) |
 | Auth | JWT Bearer HS256 |
 | Passwords | BCrypt.Net-Next (workFactor: 12) |
@@ -20,7 +19,7 @@ Guía de referencia para agregar funcionalidad al backend. Todo código generado
 | Tracing | OpenTelemetry OTLP → Jaeger |
 | Métricas | Prometheus (`/metrics`) |
 | Health | `/api/health` |
-| Testing | xUnit |
+| Testing | xUnit + NSubstitute + NetArchTest.Rules |
 | Deploy | Docker multi-stage |
 
 ---
@@ -34,13 +33,13 @@ Estas reglas son tan vinculantes como las reglas arquitectónicas. No son aspira
 **S — Single Responsibility Principle (SRP)**
 Cada clase tiene exactamente una razón para cambiar.
 - Un handler maneja un solo caso de uso.
-- Un `...Sql` class gestiona una sola tabla.
+- Un repositorio gestiona una sola entidad.
 - Un presenter traduce una sola respuesta de dominio a HTTP.
 - Si una clase tiene más de una responsabilidad, sepárala.
 
 **O — Open/Closed Principle (OCP)**
 Abierto para extensión, cerrado para modificación.
-- Extiende comportamiento agregando nuevos handlers, presenters o clases `...Sql`, no modificando los existentes.
+- Extiende comportamiento agregando nuevos handlers, presenters o repositorios, no modificando los existentes.
 - Usa interfaces (`IRepository`, `ITokenService`) para puntos de extensión sin romper implementaciones existentes.
 
 **L — Liskov Substitution Principle (LSP)**
@@ -57,7 +56,7 @@ Las interfaces deben ser específicas, no genéricas.
 Depender de abstracciones, no de implementaciones concretas.
 - `Application` y `WebApi` solo ven interfaces: `IRepository`, `ITokenService`, `ITenancyApi`.
 - `Infrastructure` provee las implementaciones; `Application` nunca la referencia directamente.
-- Las clases `...Sql` son detalles de infraestructura: solo `Infrastructure` las conoce.
+- Los repositorios son detalles de infraestructura: solo `Infrastructure` los conoce.
 
 ### Clean Code
 
@@ -76,7 +75,6 @@ Depender de abstracciones, no de implementaciones concretas.
 
 **Sin números mágicos ni strings literales repetidos**
 - Roles: usar constantes (`"Admin"`, `"User"`) definidas en un lugar central.
-- Nombres de columnas en SQL: siempre en la clase `...Sql`, nunca repetidos en distintos archivos.
 
 **Manejo de errores explícito, sin excepciones para control de flujo**
 - Retornar `INotFoundFailure`, `IConflictFailure`, `IValidationFailure` desde el handler.
@@ -84,7 +82,7 @@ Depender de abstracciones, no de implementaciones concretas.
 - Las excepciones son para condiciones inesperadas del sistema (fallo de red, DB inaccesible).
 
 **Sin duplicación (DRY)**
-- Si una query aparece en dos lugares, pertenece a la clase `...Sql` correspondiente.
+- Si una consulta aparece en dos repositorios, abstraer en un método compartido.
 - Si una transformación de DTO se repite, es un método de extensión o factory.
 
 ---
@@ -97,11 +95,11 @@ El proyecto usa un **Monolito Modular Explícito**: cada módulo y cada capa tie
 
 ```
 Modules/
-  Tenancy/        ← Empresa y Sucursal (tenant management)
+  Tenancy/        ← Empresa (tenant management)
   Users/          ← Perfil de usuario (CRUD, datos de negocio)
 Shared/
   Authentication/ ← Identidad, credenciales, JWT (cross-cutting)
-  Database/       ← Infraestructura DB compartida (MainDapperDbConnection)
+  Database/       ← AppDbContext + EntityTypeConfigurations
 Common/           ← Submódulo — abstracciones sin lógica de negocio
 ```
 
@@ -116,7 +114,7 @@ Cada módulo tiene 6 proyectos:
 | `{Modulo}.Contracts` | Interfaces públicas (`ITenancyApi`) y eventos de integración — lo único que otros módulos pueden referenciar |
 | `{Modulo}.Domain` | Entidades, value objects, interfaces de repositorios |
 | `{Modulo}.Application` | Casos de uso: Request, Handler, Responses. Sin referencias a Infrastructure |
-| `{Modulo}.Infrastructure` | Implementaciones: `...Sql`, repositorios concretos, servicios externos |
+| `{Modulo}.Infrastructure` | Implementaciones: repositorios concretos (inyectan `AppDbContext`), servicios externos |
 | `{Modulo}.Presentation` | Controllers, Presenters, RequestBodies |
 | `{Modulo}.Tests` | Tests unitarios de handlers (xUnit + NSubstitute) + tests de arquitectura (NetArchTest.Rules) |
 
@@ -144,30 +142,28 @@ back-template/
 ├── Common/                                 ← submódulo git (NO editar)
 ├── Shared/
 │   ├── Database/
-│   │   ├── MainDbConnection.cs             ← marcador de BD (clase vacía)
-│   │   ├── ReadonlyDbConnection.cs         ← marcador de BD secundaria (ejemplo)
-│   │   ├── DbConnectionFactory.cs          ← open generic factory
-│   │   ├── DapperDbConnection.cs           ← open generic — inyectar en ...Sql classes
-│   │   └── ServiceCollectionEx.cs          ← AddMainDatabase()
+│   │   ├── AppDbContext.cs                 ← DbContext central con todos los DbSets
+│   │   ├── EntityTypeConfigurations/       ← IEntityTypeConfiguration<T> por entidad
+│   │   └── ServiceCollectionEx.cs          ← AddMainDatabase(config)
 │   ├── Web/
 │   │   └── BaseApiController.cs            ← base con IMediator protegido
 │   └── Authentication/
 │       ├── Authentication.Contracts/       ← UserShouldBeCreatedIntegrationEvent
 │       ├── Authentication.Domain/          ← UserCredential, RefreshToken, IUserCredentialRepository
 │       ├── Authentication.Application/     ← Register/Login/RefreshToken handlers
-│       ├── Authentication.Infrastructure/  ← CredentialsSql, RefreshTokensSql, JwtTokenService
+│       ├── Authentication.Infrastructure/  ← Repositorios (AppDbContext), JwtTokenService
 │       ├── Authentication.Presentation/    ← AuthController, presenters
 │       └── Authentication.Tests/          ← tests unitarios + arquitectura
 ├── Modules/
 │   ├── Tenancy/
-│   │   ├── Tenancy.Contracts/              ← ITenancyApi, TenantDto, BranchDto
+│   │   ├── Tenancy.Contracts/              ← ITenancyApi, TenantDto
 │   │   ├── Tenancy.Domain/
 │   │   ├── Tenancy.Application/            ← TenancyApi (implementa ITenancyApi)
 │   │   ├── Tenancy.Infrastructure/
 │   │   ├── Tenancy.Presentation/
 │   │   └── Tenancy.Tests/
 │   └── Users/
-│       ├── Users.Contracts/                ← UserRegisteredIntegrationEvent
+│       ├── Users.Contracts/                ← UserShouldBeCreatedIntegrationEvent
 │       ├── Users.Domain/
 │       ├── Users.Application/              ← CRUD handlers + UserShouldBeCreatedHandler
 │       ├── Users.Infrastructure/
@@ -177,8 +173,7 @@ back-template/
 │   ├── Program.cs                          ← composición final
 │   ├── Extensions/                         ← JwtAuth, Cors, Swagger, Health
 │   ├── Middleware/TenantClaimsMiddleware.cs
-│   ├── appsettings.json
-│   └── Services/Schema Migration/Tables/*.sql
+│   └── appsettings.json
 └── Tests/                                  ← tests de integración cross-módulo (opcional)
 ```
 
@@ -199,7 +194,6 @@ Solución: `Tenancy.Contracts` expone `ITenancyApi`. `Authentication.Application
 public interface ITenancyApi
 {
     Task<TenantDto?> GetTenantByIdAsync(long id, CancellationToken ct = default);
-    Task<BranchDto?> GetBranchByIdAsync(long id, CancellationToken ct = default);
 }
 ```
 
@@ -210,7 +204,7 @@ Tras crear una credencial, `Authentication.Application` necesita que `Users.Appl
 ```csharp
 // En Authentication.Contracts
 public sealed record UserShouldBeCreatedIntegrationEvent(
-    Guid PublicId, long TenantId, long BranchId,
+    Guid PublicId, long TenantId,
     string FullName, string Email, string Role) : INotification;
 
 // En Users.Contracts
@@ -227,7 +221,7 @@ AuthController.Register(body)
 RegisterHandler
     1. Valida tenant via ITenancyApi.GetTenantByIdAsync()
     2. Verifica email no tomado (IUserCredentialRepository)
-    3. Hashea password, inserta Credential → obtiene PublicId (RETURNING)
+    3. Hashea password, inserta Credential → obtiene Id generado
     4. Publica UserShouldBeCreatedIntegrationEvent
           ↓
           UserShouldBeCreatedHandler (Users.Application)
@@ -242,61 +236,39 @@ RegisterHandler
 
 ## Regla de oro — Acceso a datos
 
-**Todo SQL pasa obligatoriamente por `DapperDbConnection<T>`.**
+**Todo acceso a datos pasa obligatoriamente por `AppDbContext`** inyectado en el repositorio.
 
 ```
-ConnectionStrings:{T.Name}  (appsettings.json — e.g. "MainDbConnection")
+ConnectionStrings:MainDbConnection  (appsettings.json)
     ↓
-DbConnectionFactory<T>      (abre NpgsqlConnection para el marcador T)
+AppDbContext                        (EF Core — Scoped por AddDbContext)
     ↓
-DapperDbConnection<T>       (ejecuta Dapper + logs de performance)
-    ↓
-{Entidad}Sql classes        (inyectan DapperDbConnection<MainDbConnection>)
+{Entidad}Repository                 (inyecta AppDbContext directamente)
 ```
 
-`DbConnectionFactory<T>` y `DapperDbConnection<T>` se registran como open generics Scoped por `AddMainDatabase()`. Cualquier `...Sql` class puede inyectar cualquier marcador sin registro explícito adicional.
+Los repositorios son la única capa de acceso a datos. Ningún handler, servicio de aplicación ni controller toca `AppDbContext` directamente.
 
-**Marcadores de BD disponibles:**
-
-| Marcador | Clave appsettings | Uso |
-|----------|------------------|-----|
-| `MainDbConnection` | `ConnectionStrings:MainDbConnection` | BD principal — lectura/escritura |
-| `ReadonlyDbConnection` | `ConnectionStrings:ReadonlyDbConnection` | Réplica de solo lectura (ejemplo) |
-
-**Clases `...Sql`:**
-- Viven en `{Modulo}.Infrastructure/Persistence/SQLDB/`
-- Reciben `DapperDbConnection<MainDbConnection>` por constructor (Scoped)
-- Agrupan **todos** los queries de su tabla — ningún SQL fuera de ella
-- SQL como raw strings `"""..."""` — sin concatenación ni interpolación
-- Parámetros siempre como objeto anónimo `new { param }`
+**Patrones de acceso:**
 
 ```csharp
-public sealed class CredentialsSql
-{
-    private readonly DapperDbConnection<MainDbConnection> _db;
-    public CredentialsSql(DapperDbConnection<MainDbConnection> db) => _db = db;
+// Lectura — siempre AsNoTracking()
+await _db.UserProfiles
+    .AsNoTracking()
+    .FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, ct);
 
-    public Task<UserCredential?> GetByEmailAsync(string email, CancellationToken ct = default) =>
-        _db.QuerySingleAsync<UserCredential>(
-            """
-            SELECT Id, PublicId, TenantId, BranchId, Email, PasswordHash, Role, IsActive, CreatedAtUtc, UpdatedAtUtc
-            FROM dbo.Credentials
-            WHERE Email = @email;
-            """,
-            new { email },
-            cancellationToken: ct);
-}
+// Insertar — object initializer con propiedades init
+var entity = new UserProfile { PublicId = publicId, TenantId = tenantId, FullName = fullName, IsActive = true };
+_db.UserProfiles.Add(entity);
+await _db.SaveChangesAsync(ct);
+
+// Actualizar — ExecuteUpdateAsync (funciona con propiedades init)
+await _db.UserProfiles
+    .Where(e => e.PublicId == publicId)
+    .ExecuteUpdateAsync(s => s.SetProperty(e => e.FullName, fullName), ct);
+
+// Sin filtro tenant (auth) — IgnoreQueryFilters()
+await _db.Credentials.IgnoreQueryFilters().FirstOrDefaultAsync(e => e.Email == email, ct);
 ```
-
-**Métodos disponibles en `DapperDbConnection<T>`:**
-
-| Método | Retorno | Uso |
-|--------|---------|-----|
-| `QueryAsync<T>` | `Task<IEnumerable<T>>` | Múltiples filas |
-| `QuerySingleAsync<T>` | `Task<T?>` | 0 o 1 fila |
-| `QueryFirstAsync<T>` | `Task<T?>` | Primera fila o null |
-| `ExecuteAsync` | `Task<int>` | INSERT / UPDATE / DELETE |
-| `ExecuteScalarAsync<T>` | `Task<T>` | COUNT, EXISTS, escalar |
 
 ---
 
@@ -379,7 +351,7 @@ public sealed class GetUserProfileHandler
     public async Task<GetUserProfileResponse> Handle(
         GetUserProfileRequest request, CancellationToken cancellationToken)
     {
-        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, request.TenantId, cancellationToken);
+        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, cancellationToken);
         if (profile is null)
             return new GetUserProfileNotFoundFailure("Perfil no encontrado.");
         return new GetUserProfileSuccess(new UserProfileDto(profile.PublicId, profile.FullName, profile.IsActive));
@@ -407,10 +379,6 @@ public sealed class GetUserProfilePresenter : IPresenter<GetUserProfileResponse>
         return Task.CompletedTask;
     }
 }
-
-// Variante B — ISuccess (sin genérico) → _viewModel.OK(success)
-// else if (notification is GetUserProfilesSuccess success)
-//     _viewModel.OK(success);
 ```
 
 **Métodos de `ResultViewModel<T>`:**
@@ -446,7 +414,7 @@ public sealed class UsersController : BaseApiController
         {
             _ = await Mediator.Send(new GetUserProfileRequest(id, CurrentTenantId), ct);
             if (_viewModel.IsSuccess) return Ok(_viewModel);
-            return StatusCode(404, _viewModel); // o NotFound(_viewModel) según la response
+            return StatusCode(404, _viewModel);
         }
         catch (Exception ex)
         {
@@ -481,7 +449,6 @@ public static IServiceCollection AddUsersApplicationServices(this IServiceCollec
 ```csharp
 public static IServiceCollection AddUsersInfrastructureServices(this IServiceCollection services)
 {
-    services.AddScoped<UserProfilesSql>();
     services.AddScoped<IUserProfileRepository, UserProfileRepository>();
     return services;
 }
@@ -490,7 +457,7 @@ public static IServiceCollection AddUsersInfrastructureServices(this IServiceCol
 ### Presentation `ServiceCollectionEx`
 
 ```csharp
-public static IServiceCollection AddUsersPresentationServices(this IServiceCollection services)
+public static IServiceCollection AddUsersWebApiServices(this IServiceCollection services)
 {
     services.AddScoped(typeof(ResultViewModel<>));
 
@@ -508,6 +475,9 @@ public static IServiceCollection AddUsersPresentationServices(this IServiceColle
 ### Host.Api `Program.cs` — composición final
 
 ```csharp
+// AppDbContext + DatabaseInitializationService
+builder.Services.AddMainDatabase(builder.Configuration);
+
 // Una sola llamada a AddMediator con TODOS los ensamblados Application
 builder.Services.AddMediator(
     typeof(Tenancy.Application.ServiceCollectionEx).Assembly,
@@ -518,15 +488,15 @@ builder.Services.AddMediator(
 // Por cada módulo: Application + Infrastructure + Presentation
 builder.Services.AddTenancyApplicationServices();
 builder.Services.AddTenancyInfrastructureServices();
-builder.Services.AddTenancyPresentationServices();
+builder.Services.AddTenancyWebApiServices();
 
 builder.Services.AddUsersApplicationServices();
 builder.Services.AddUsersInfrastructureServices();
-builder.Services.AddUsersPresentationServices();
+builder.Services.AddUsersWebApiServices();
 
 builder.Services.AddAuthenticationApplicationServices();
-builder.Services.AddAuthenticationInfrastructureServices();
-builder.Services.AddAuthenticationPresentationServices();
+builder.Services.AddAuthenticationInfrastructureServices(builder.Configuration);
+builder.Services.AddAuthenticationWebApiServices();
 ```
 
 **Por qué una sola llamada:** `AddMediator` registra `IPipelineBehavior<,> → InteractorPipeline<,>`. Si se llama N veces, el pipeline se encadena N veces y cada handler se ejecuta N veces.
@@ -535,36 +505,11 @@ builder.Services.AddAuthenticationPresentationServices();
 
 ---
 
-## Migraciones de esquema (PostgreSQL)
-
-Viven en `Host.Api/Services/Schema Migration/Tables/`. Se ejecutan automáticamente al iniciar.
-
-**Esquema único:** `dbo` para todas las tablas — sin esquemas separados por módulo.
-
-**Numeración:** bloques de 10 por entidad.
-
-```
-001_tenants.sql             / 002_tenants_indexes.sql
-010_branches.sql            / 011_branches_indexes.sql
-020_credentials.sql         / 021_credentials_indexes.sql      ← owned by Authentication
-030_user_profiles.sql       / 031_user_profiles_indexes.sql    ← owned by Users
-040_refresh_tokens.sql      / 041_refresh_tokens_indexes.sql   ← CredentialId FK (no UserId)
-```
-
-**Reglas absolutas:**
-- `CREATE TABLE IF NOT EXISTS` — idempotentes siempre.
-- Nunca editar migraciones ya aplicadas — agregar nueva migración con número mayor.
-- Fechas UTC: `TIMESTAMP(0) NOT NULL DEFAULT (timezone('utc', now()))`.
-
----
-
 ## Lifetimes de DI
 
 | Clase | Lifetime |
 |-------|----------|
-| `DbConnectionFactory<T>` (open generic) | Singleton |
-| `DapperDbConnection<T>` (open generic) | Scoped |
-| `...Sql` classes | Scoped |
+| `AppDbContext` | Scoped (AddDbContext) |
 | Repositorios | Scoped |
 | Presenters | Scoped |
 | `ResultViewModel<>` | Scoped |
@@ -584,8 +529,7 @@ Viven en `Host.Api/Services/Schema Migration/Tables/`. Se ejecutan automáticame
 | Presenter | `{Accion}Presenter` | `GetUserProfilePresenter` |
 | Request body | `{Accion}Body` | `UpdateUserProfileBody` |
 | Controller | `{Modulo}Controller` | `UsersController` |
-| SQL object | `{Entidad}Sql` | `UserProfilesSql` |
-| Clase marcadora BD | `{Nombre}DbConnection` | `MainDbConnection` |
+| Entity config | `{Entidad}Configuration` | `UserProfileConfiguration` |
 | Repositorio interfaz | `I{Entidad}Repository` | `IUserProfileRepository` |
 | DTO | `{Entidad}Dto` | `UserProfileDto` |
 | Evento de integración | `{Evento}IntegrationEvent` | `UserShouldBeCreatedIntegrationEvent` |
@@ -598,7 +542,7 @@ Viven en `Host.Api/Services/Schema Migration/Tables/`. Se ejecutan automáticame
 2. Un módulo solo puede referenciar `.Contracts` de otro módulo.
 3. `Infrastructure` nunca referencia `Presentation`.
 4. El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**.
-5. Todo SQL vive en clases `...Sql` — cero SQL inline en repositorios, handlers o servicios.
+5. Todo acceso a datos pasa por `AppDbContext` inyectado en el repositorio — cero SQL inline en handlers o servicios.
 6. Toda respuesta HTTP pasa por `ResultViewModel<TController>` — nunca retornar datos directos.
 7. No secretos en `appsettings*.json` — variables de entorno.
 8. No editar el submódulo `Common` desde este repositorio.
@@ -613,14 +557,15 @@ Viven en `Host.Api/Services/Schema Migration/Tables/`. Se ejecutan automáticame
 - [ ] Crear `{Modulo}.Contracts` — interfaces públicas y eventos de integración
 - [ ] Crear `{Modulo}.Domain` — entidades + interfaces de repositorios
 - [ ] Crear `{Modulo}.Application` — Request + Handler + Responses por acción; `ServiceCollectionEx.cs`
-- [ ] Crear `{Modulo}.Infrastructure` — `...Sql` + repositorios concretos; `ServiceCollectionEx.cs`
+- [ ] Crear `{Modulo}.Infrastructure` — repositorios concretos (AppDbContext); `ServiceCollectionEx.cs`
+- [ ] Crear configuración EF Core en `Shared/Database/EntityTypeConfigurations/`
+- [ ] Agregar `DbSet<T>` en `AppDbContext` + query filter si aplica
 - [ ] Crear `{Modulo}.Presentation` — Controllers + Presenters + RequestBodies; `ServiceCollectionEx.cs`
 - [ ] Crear `{Modulo}.Tests` — tests de arquitectura (NetArchTest) + tests unitarios por handler (xUnit + NSubstitute)
 - [ ] Agregar los 6 `.csproj` al `back-template.slnx` bajo `<Folder Name="/{Modulo}/">`
 - [ ] Referenciar Application, Infrastructure y Presentation del módulo en `Host.Api.csproj`
-- [ ] Llamar `Add{Modulo}ApplicationServices()`, `Add{Modulo}InfrastructureServices()`, `Add{Modulo}PresentationServices()` en `Program.cs`
+- [ ] Llamar `Add{Modulo}ApplicationServices()`, `Add{Modulo}InfrastructureServices()`, `Add{Modulo}WebApiServices()` en `Program.cs`
 - [ ] Pasar el ensamblado `.Application` al `AddMediator(...)` en `Program.cs`
-- [ ] Agregar migraciones SQL en `Host.Api/Services/Schema Migration/Tables/`
 - [ ] `dotnet build Host.Api/Host.Api.csproj` — 0 errores
 - [ ] `dotnet test` en `{Modulo}.Tests` — 0 errores
 

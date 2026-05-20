@@ -1,7 +1,7 @@
 # back-template
 
 Plantilla de backend .NET 10 con Clean Architecture, CQRS, Mediator y Presenter Pattern.
-Lista para producción: JWT, Serilog → Seq, OpenTelemetry → Jaeger, Prometheus, health checks, migraciones automáticas y Docker multi-stage distroless.
+Lista para producción: JWT, Serilog → Seq, OpenTelemetry → Jaeger, Prometheus, health checks, esquema automático con EF Core y Docker multi-stage distroless.
 
 ---
 
@@ -12,8 +12,7 @@ Lista para producción: JWT, Serilog → Seq, OpenTelemetry → Jaeger, Promethe
 | Runtime | .NET 10 / C# 13 |
 | Framework | ASP.NET Core 10 |
 | Base de datos | PostgreSQL 17 |
-| ORM | Dapper (SQL parametrizado) |
-| Driver | Npgsql 10 |
+| ORM | EF Core 10 (Npgsql 10.0.1) |
 | Mediator | Custom — `Common.Messaging` (NO MediatR NuGet) |
 | Auth | JWT Bearer HS256 |
 | Passwords | BCrypt.Net-Next |
@@ -21,7 +20,7 @@ Lista para producción: JWT, Serilog → Seq, OpenTelemetry → Jaeger, Promethe
 | Tracing | OpenTelemetry OTLP → Jaeger |
 | Métricas | Prometheus en `/metrics` |
 | Health | `/api/health` |
-| Testing | xUnit + coverlet |
+| Testing | xUnit + NSubstitute + NetArchTest.Rules |
 | Deploy | Docker multi-stage (distroless) |
 
 ---
@@ -67,8 +66,7 @@ docker compose -f compose-dev.yaml up -d --build
 
 ### 3. Revisar configuración local
 
-`back-template/Host/appsettings.Local.json` ya trae la config lista para desarrollo en máquina:
-Seq habilitado, Swagger habilitado, `IncludeSqlText: true` (SQL real en logs).
+`back-template/Host.Api/appsettings.Local.json` ya trae la config lista para desarrollo en máquina.
 
 Copia el `.env` de ejemplo si quieres sobreescribir variables:
 
@@ -79,7 +77,7 @@ cp back-template/.env.example back-template/.env.development
 ### 4. Correr la API
 
 ```bash
-dotnet run --project back-template/Host --launch-profile Local
+dotnet run --project back-template/Host.Api --launch-profile Local
 ```
 
 | Recurso | URL |
@@ -90,14 +88,18 @@ dotnet run --project back-template/Host --launch-profile Local
 | Prometheus metrics | `http://localhost:5080/metrics` |
 | Seq (logs) | `http://localhost:5341` |
 
+> Al iniciar la API, `DatabaseInitializationService` ejecuta `EnsureCreatedAsync()` — las tablas se crean automáticamente en la BD si no existen.
+
 ### 5. Verificar
 
 ```bash
 # Health check
 curl http://localhost:5080/api/health
 
-# Endpoint de ejemplo (lista paginada)
-curl "http://localhost:5080/api/example/users?page=1&pageSize=10"
+# Login de prueba
+curl -X POST http://localhost:5080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@test.com","password":"password"}'
 ```
 
 ### 6. Build y tests
@@ -124,18 +126,18 @@ back-template/
 ├── back-template/                              # Solución .NET
 │   ├── Common/                                 # Submódulo Git — abstracciones base (NO editar)
 │   ├── Shared/
-│   │   ├── Database/                           # DapperDbConnection<T>, DbConnectionFactory<T>, marcadores
+│   │   ├── Database/                           # AppDbContext, EntityTypeConfigurations
 │   │   ├── Web/                                # BaseApiController (Shared.Web.csproj)
 │   │   └── Authentication/
 │   │       ├── Authentication.Contracts/       # Eventos de integración públicos
 │   │       ├── Authentication.Domain/          # UserCredential, RefreshToken, interfaces
 │   │       ├── Authentication.Application/     # Register, Login, RefreshToken handlers
-│   │       ├── Authentication.Infrastructure/  # CredentialsSql, JwtTokenService, repositorios
+│   │       ├── Authentication.Infrastructure/  # JwtTokenService, repositorios (AppDbContext)
 │   │       ├── Authentication.Presentation/    # AuthController, presenters
-│   │       └── Authentication.Tests/          # Tests unitarios + arquitectura
+│   │       └── Authentication.Tests/           # Tests unitarios + arquitectura
 │   ├── Modules/
 │   │   ├── Tenancy/
-│   │   │   ├── Tenancy.Contracts/              # ITenancyApi, TenantDto, BranchDto
+│   │   │   ├── Tenancy.Contracts/              # ITenancyApi, TenantDto
 │   │   │   ├── Tenancy.Domain/
 │   │   │   ├── Tenancy.Application/            # TenancyApi + handlers
 │   │   │   ├── Tenancy.Infrastructure/
@@ -152,7 +154,6 @@ back-template/
 │   │   ├── Program.cs
 │   │   ├── Extensions/                         # JWT, CORS, Swagger, Health
 │   │   ├── Middleware/
-│   │   ├── Services/Schema Migration/Tables/   # Migraciones SQL automáticas
 │   │   └── appsettings.*.json
 │   └── Tests/                                  # Tests de integración cross-módulo (opcional)
 ├── compose.yaml                                # Docker Compose — producción
@@ -210,16 +211,16 @@ HTTP Response  { data, isSuccess, message, utcTimeStamp }
 | [docs/Back.md](docs/Back.md) | Arquitectura modular, patrones de caso de uso, presenter, controller, DI completo |
 | [docs/ProgramCs.md](docs/ProgramCs.md) | Program.cs línea por línea — por qué existe cada sección y el orden del middleware |
 | [docs/Modules.md](docs/Modules.md) | Ciclo de vida de módulos — agregar, acoplar, desacoplar, extraer a repo propio, submodule |
-| [docs/AddEndpoint.md](docs/AddEndpoint.md) | Guía paso a paso para agregar un endpoint — desde migración hasta controller |
-| [docs/MultiTenancy.md](docs/MultiTenancy.md) | Cómo fluye TenantId desde el JWT hasta el WHERE del SQL — capa por capa |
+| [docs/AddEndpoint.md](docs/AddEndpoint.md) | Guía paso a paso para agregar un endpoint — desde entidad hasta controller |
+| [docs/MultiTenancy.md](docs/MultiTenancy.md) | Cómo fluye TenantId desde el JWT hasta el WHERE de EF Core — capa por capa |
 | [docs/Config.md](docs/Config.md) | appsettings.json, entornos, variables de entorno, Docker .env, secretos |
-| [docs/DB.md](docs/DB.md) | DapperDbConnection\<T\>, clases Sql, migraciones, transacciones, SQL avanzado |
+| [docs/DB.md](docs/DB.md) | AppDbContext, EntityTypeConfigurations, patrones EF Core, transacciones |
 | [docs/Testing.md](docs/Testing.md) | Tests de arquitectura (NetArchTest) + tests unitarios (NSubstitute) + integración |
 | [docs/Common.md](docs/Common.md) | Referencia completa del submódulo Common — IMediator, InteractorPipeline, ISuccess, etc. |
 | [docs/Auth.md](docs/Auth.md) | Autenticación JWT HS256 — configuración, tokens, claims, roles |
 | [docs/Packages.md](docs/Packages.md) | Explicación explícita de cada paquete NuGet instalado |
 | [docs/Observability.md](docs/Observability.md) | Logging Serilog/Seq, trazas OpenTelemetry/Jaeger, métricas Prometheus |
-| [docs/Pagination.md](docs/Pagination.md) | PagedResult\<T\>, queries SQL paginados, refresh tokens, background services |
+| [docs/Pagination.md](docs/Pagination.md) | PagedResult\<T\>, queries EF Core paginados, cursor-based pagination |
 | [docs/CurrentUser.md](docs/CurrentUser.md) | ICurrentUserService, claims, roles en Application, audit trail, HttpClient+Polly |
 | [docs/Errors.md](docs/Errors.md) | Problem Details, global exception handler, Result vs excepciones, soft delete |
 | [docs/Security.md](docs/Security.md) | Rate limiting, security headers, HTTPS, CORS producción, FluentValidation, OWASP |
@@ -232,14 +233,12 @@ Para documentación pedagógica (C#, patrones de diseño, arquitectura, Docker) 
 
 ## Entornos
 
-| Entorno | Swagger | SQL en logs | Perfil de lanzamiento |
-|---------|---------|-------------|----------------------|
-| `Local` | ✓ | ✓ | `--launch-profile Local` |
-| `Development` | ✓ | ✗ | `--launch-profile Development` |
-| `Staging` | ✓ | ✗ | `--launch-profile Staging` |
-| `Production` | ✗ | ✗ | `--launch-profile Production` |
-
-`Local` es el perfil de trabajo diario en máquina. Activa el texto SQL en los logs de Serilog para debug.
+| Entorno | Swagger | Perfil de lanzamiento |
+|---------|---------|----------------------|
+| `Local` | ✓ | `--launch-profile Local` |
+| `Development` | ✓ | `--launch-profile Development` |
+| `Staging` | ✓ | `--launch-profile Staging` |
+| `Production` | ✗ | `--launch-profile Production` |
 
 ---
 
@@ -280,9 +279,9 @@ Ver `.env.example` para la lista completa.
 4. Agregar a `AddMediator(...)` y llamar los 3 `Add{Modulo}*Services()` en `Program.cs`
 
 **Nuevo endpoint en módulo existente** — ver la guía completa en [docs/AddEndpoint.md](docs/AddEndpoint.md):
-1. Migración SQL en `Host.Api/Services/Schema Migration/Tables/` (si es tabla nueva)
-2. Entidad + interfaz de repositorio en `{Modulo}.Domain/`
-3. Clase `...Sql` + repositorio en `{Modulo}.Infrastructure/` + DI
+1. Entidad + interfaz de repositorio en `{Modulo}.Domain/`
+2. Configuración EF Core en `Shared/Database/EntityTypeConfigurations/`
+3. Repositorio en `{Modulo}.Infrastructure/` + DI
 4. Caso de uso en `{Modulo}.Application/UseCases/` (Request + Handler + Responses)
 5. Presenter en `{Modulo}.Presentation/Presenters/` + registro manual en `ServiceCollectionEx`
 6. Endpoint en el controller de `{Modulo}.Presentation/Controllers/`
@@ -296,7 +295,7 @@ Ver `.env.example` para la lista completa.
 2. Un módulo solo puede referenciar `.Contracts` de otro módulo — nunca Domain, Application, Infrastructure ni Presentation
 3. `Infrastructure` nunca referencia `Presentation`
 4. El mediador es `Common.Messaging.IMediator` — **nunca MediatR NuGet**
-5. Todo SQL vive en clases `...Sql` — cero SQL inline en repositorios o handlers
+5. Todo acceso a datos pasa por `AppDbContext` inyectado en el repositorio — cero SQL inline fuera del repositorio
 6. Toda respuesta HTTP pasa por `ResultViewModel<TController>` — nunca datos directos
 7. Los presenters se registran manualmente en `Presentation/ServiceCollectionEx.cs` — nunca vía scan de AddMediator
 8. `AddMediator()` se llama **una sola vez** en `Host.Api/Program.cs` con todos los ensamblados Application

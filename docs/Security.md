@@ -282,9 +282,9 @@ public static IServiceCollection AddAuthenticationApplicationServices(this IServ
 
 | # | Vulnerabilidad | Mitigación en este proyecto |
 |---|---------------|---------------------------|
-| A01 | Broken Access Control | `[Authorize]` + `[Authorize(Roles = "Admin")]` + verificar TenantId en todos los queries |
+| A01 | Broken Access Control | `[Authorize]` + `[Authorize(Roles = "Admin")]` + query filter global de EF Core por TenantId |
 | A02 | Cryptographic Failures | BCrypt workFactor:12 para passwords, JWT HS256 ≥32 chars, HTTPS en prod |
-| A03 | Injection | Dapper con parámetros `new { param }` — **nunca** interpolación de strings en SQL |
+| A03 | Injection | EF Core con LINQ parametrizado — **nunca** `FromSqlRaw` con interpolación de strings |
 | A04 | Insecure Design | Clean Architecture — dominio aislado, validators en Application |
 | A05 | Security Misconfiguration | Security headers, CORS restrictivo en prod, Swagger deshabilitado en prod |
 | A06 | Vulnerable Components | `dotnet list package --vulnerable` en CI |
@@ -296,12 +296,15 @@ public static IServiceCollection AddAuthenticationApplicationServices(this IServ
 ### Lo más crítico para esta API
 
 ```csharp
-// A03 — NUNCA interpolación en SQL
+// A03 — NUNCA FromSqlRaw con interpolación
 // ❌
-_db.QueryAsync<UserProfile>($"SELECT * FROM dbo.UserProfiles WHERE Email = '{email}'");
+_db.UserProfiles.FromSqlRaw($"SELECT * FROM dbo.user_profiles WHERE email = '{email}'");
 
-// ✓ Siempre parámetros
-_db.QueryAsync<UserProfile>("SELECT * FROM dbo.UserProfiles WHERE Email = @email", new { email });
+// ✓ LINQ parametrizado (EF Core genera SQL parametrizado automáticamente)
+_db.UserProfiles.Where(u => u.Email == email).AsNoTracking().ToListAsync();
+
+// ✓ Si necesitas SQL raw: siempre parámetros con FromSqlInterpolated o {0}
+_db.UserProfiles.FromSqlInterpolated($"SELECT * FROM dbo.user_profiles WHERE email = {email}");
 
 // A09 — No loguear datos sensibles
 // ❌
@@ -310,9 +313,10 @@ _logger.LogInformation("Login con Password={Password}", request.Password);
 // ✓
 _logger.LogInformation("Login intento para Email={Email}", request.Email);
 
-// A01 — Siempre filtrar por TenantId en queries multi-tenant
-// ❌
-WHERE PublicId = @publicId
-// ✓
-WHERE PublicId = @publicId AND TenantId = @tenantId
+// A01 — EF Core global query filter garantiza el filtro de TenantId automáticamente.
+// Para repos de auth (login/refresh) que usan IgnoreQueryFilters(), verificar manualmente:
+var credential = await _db.Credentials
+    .IgnoreQueryFilters()
+    .FirstOrDefaultAsync(c => c.Email == email, ct);
+// Estos repos son de solo autenticación — no exponen datos de otros tenants.
 ```

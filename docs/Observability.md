@@ -75,7 +75,7 @@ _logger.LogInformation("Actualizando perfil PublicId={PublicId} TenantId={Tenant
 _logger.LogInformation($"Actualizando perfil PublicId={publicId}");
 ```
 
-### Ver el SQL de las queries
+### Ver el SQL de las queries (EF Core)
 
 Activar en `appsettings.Local.json`:
 
@@ -85,7 +85,7 @@ Activar en `appsettings.Local.json`:
 }
 ```
 
-Solo activar en `Local` — en producción puede exponer datos sensibles.
+`IncludeSqlText: true` habilita `EnableSensitiveDataLogging()` en EF Core — muestra los valores de los parámetros en el SQL logueado. Solo activar en `Local` — en producción expone datos sensibles.
 
 ---
 
@@ -127,9 +127,8 @@ SqlText is not null
 | `MachineName` | `Environment.MachineName` | Hostname |
 | `Environment` | `ASPNETCORE_ENVIRONMENT` | Local/Development/Staging/Production |
 | `CorrelationId` | CorrelationIdMiddleware | ID de la request HTTP |
-| `QueryName` | MainDapperDbConnection | Nombre del query SQL |
-| `ElapsedMs` | MainDapperDbConnection | Tiempo de ejecución del query |
-| `SqlHash` | MainDapperDbConnection | SHA-256 del SQL |
+| `DbCommandText` | EF Core logging | SQL generado (cuando `EnableSensitiveDataLogging` activo) |
+| `ElapsedMs` | EF Core logging | Tiempo de ejecución de la query |
 
 ---
 

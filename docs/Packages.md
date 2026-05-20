@@ -7,16 +7,49 @@ Explicación explícita de cada paquete instalado en el proyecto, qué problema 
 ## Distribución por proyecto
 
 ```
-Common/Common/               → Dapper, Npgsql, Serilog.*, OpenTelemetry.*, AspNetCore.HealthChecks.*
-Shared/Database/             → sin paquetes externos (usa Common vía ProjectReference)
+Common/Common/               → Serilog.*, OpenTelemetry.*, AspNetCore.HealthChecks.*
+Shared/Database/             → Npgsql.EntityFrameworkCore.PostgreSQL, Microsoft.EntityFrameworkCore.Design
 {Modulo}.Domain/             → sin paquetes externos
 {Modulo}.Contracts/          → sin paquetes externos
 {Modulo}.Application/        → sin paquetes externos (usa Common vía ProjectReference)
 {Modulo}.Infrastructure/     → BCrypt.Net-Next, System.IdentityModel.Tokens.Jwt (solo Authentication)
 {Modulo}.Presentation/       → FrameworkReference Microsoft.AspNetCore.App
-Host.Api/                    → Microsoft.AspNetCore.Authentication.JwtBearer, Swashbuckle.AspNetCore, Microsoft.OpenApi
-Tests/                       → xunit, xunit.runner.visualstudio, Microsoft.NET.Test.Sdk, coverlet.collector
+Host.Api/                    → Microsoft.AspNetCore.Authentication.JwtBearer, Swashbuckle.AspNetCore, Microsoft.OpenApi, Microsoft.EntityFrameworkCore.Design
+Tests/                       → xunit, xunit.runner.visualstudio, Microsoft.NET.Test.Sdk, coverlet.collector, NSubstitute, NetArchTest.Rules
 ```
+
+---
+
+## Shared.Database
+
+### Npgsql.EntityFrameworkCore.PostgreSQL `10.0.1`
+
+**Qué es:** Provider de EF Core para PostgreSQL. Traduce las queries LINQ de EF Core a SQL de PostgreSQL via Npgsql.
+
+**Por qué está aquí:** `AppDbContext` usa EF Core para gestionar el esquema y todas las operaciones de datos.
+
+**Cómo se configura** (`Shared/Database/ServiceCollectionEx.cs`):
+
+```csharp
+services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(configuration.GetConnectionString("MainDbConnection")));
+```
+
+**Características clave que se usan:**
+- `HasDefaultValueSql("gen_random_uuid()")` — UUID generado por PostgreSQL
+- `HasDefaultValueSql("timezone('utc', now())")` — timestamp UTC por defecto
+- `HasColumnType("timestamp(0)")` — sin fracciones de segundo
+- `UseIdentityByDefaultColumn()` — BIGINT auto-incremento
+- `ExecuteUpdateAsync()` / `ExecuteDeleteAsync()` — bulk operations sin cargar entidades
+- `IgnoreQueryFilters()` — bypass del global query filter de tenant
+
+### Microsoft.EntityFrameworkCore.Design `10.0.8` (PrivateAssets=all)
+
+**Qué es:** Herramientas de EF Core en tiempo de diseño — necesario para `dotnet ef migrations` y scaffolding.
+
+**Por qué está aquí:** aunque no usamos migraciones de EF Core (usamos `EnsureCreated`), este paquete es requerido por `dotnet ef` y por la compilación de templates en `Host.Api`.
+
+**`PrivateAssets="all"`** — solo se usa en desarrollo, no se incluye en la imagen de producción.
 
 ---
 
@@ -26,7 +59,7 @@ Tests/                       → xunit, xunit.runner.visualstudio, Microsoft.NET
 
 **Qué es:** Implementación de BCrypt para .NET. BCrypt es un algoritmo de hash de contraseñas diseñado para ser lento (protege contra fuerza bruta).
 
-**Por qué está aquí:** Hashear contraseñas de usuario antes de guardarlas en `dbo.Credentials`.
+**Por qué está aquí:** Hashear contraseñas de usuario antes de guardarlas en `dbo.credentials`.
 
 **Cómo se usa:**
 
@@ -61,7 +94,6 @@ var claims = new[]
     new Claim(JwtRegisteredClaimNames.Email, email),
     new Claim(ClaimTypes.Role,               role),
     new Claim("tenant_id",                   tenantId.ToString()),
-    new Claim("branch_id",                   branchId.ToString()),
     new Claim(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString()),
 };
 
@@ -171,6 +203,26 @@ dotnet test --collect:"XPlat Code Coverage" --results-directory ./coverage
 reportgenerator -reports:./coverage/**/*.xml -targetdir:./coverage/report -reporttypes:Html
 ```
 
+### NSubstitute `5.x`
+
+Framework de mocking para tests unitarios:
+
+```csharp
+var repo = Substitute.For<IUserProfileRepository>();
+repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((UserProfile?)null);
+```
+
+### NetArchTest.Rules `1.3.x`
+
+Librería para tests de arquitectura — verifica que las dependencias entre capas sigan las reglas:
+
+```csharp
+var result = Types.InAssembly(ApplicationAssembly)
+    .ShouldNot().HaveDependencyOn("Users.Infrastructure")
+    .GetResult();
+Assert.True(result.IsSuccessful);
+```
+
 ---
 
 ## Common (submódulo — referencia)
@@ -179,8 +231,6 @@ Paquetes en `Common/Common/Common.csproj`:
 
 | Paquete | Versión | Propósito |
 |---------|---------|-----------|
-| `Dapper` | 2.1.72 | SQL mapping en DapperSqlDbConnectionBase |
-| `Npgsql` | 10.x | Driver PostgreSQL en ConfigurationNpgsqlConnectionFactory |
 | `AspNetCore.HealthChecks.NpgSql` | 9.x | Check de conectividad a PostgreSQL en `/api/health` |
 | `Serilog` | 4.x | Core del sistema de logging estructurado |
 | `Serilog.Extensions.Logging` | 10.x | Puente entre `ILogger<T>` de .NET y Serilog |

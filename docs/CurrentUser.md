@@ -11,9 +11,6 @@ Los controllers extraen `TenantId` y `BranchId` directamente de los claims del J
 private long CurrentTenantId =>
     long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
 
-private long CurrentBranchId =>
-    long.TryParse(User.FindFirstValue("branch_id"), out var id) ? id : 0;
-
 private Guid CurrentUserPublicId =>
     Guid.TryParse(User.FindFirstValue(JwtRegisteredClaimNames.Sub), out var id) ? id : Guid.Empty;
 
@@ -38,7 +35,6 @@ public interface ICurrentUserService
     Guid?   UserPublicId     { get; }
     string? Email            { get; }
     long    TenantId         { get; }
-    long    BranchId         { get; }
     bool    IsAuthenticated  { get; }
     bool    IsInRole(string role);
 }
@@ -62,9 +58,6 @@ public sealed class CurrentUserService : ICurrentUserService
 
     public long TenantId =>
         long.TryParse(User?.FindFirstValue("tenant_id"), out var id) ? id : 0;
-
-    public long BranchId =>
-        long.TryParse(User?.FindFirstValue("branch_id"), out var id) ? id : 0;
 
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated ?? false;
 
@@ -121,7 +114,6 @@ new Claim(JwtRegisteredClaimNames.Sub,   credential.PublicId.ToString()),
 new Claim(JwtRegisteredClaimNames.Email, credential.Email),
 new Claim(ClaimTypes.Role,               credential.Role),
 new Claim("tenant_id",                   credential.TenantId.ToString()),
-new Claim("branch_id",                   credential.BranchId.ToString()),
 new Claim(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString()),
 ```
 
@@ -152,7 +144,7 @@ Para registrar qué usuario creó o modificó cada entidad, pasar el `UserPublic
 public async Task<IActionResult> Create([FromBody] CreateProductBody body, CancellationToken ct = default)
 {
     _ = await _mediator.Send(new CreateProductRequest(
-        body.Name, CurrentTenantId, CurrentBranchId, CurrentUserPublicId), ct);
+        body.Name, CurrentTenantId, CurrentUserPublicId), ct);
     return _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(500, _viewModel);
 }
 ```
@@ -163,17 +155,18 @@ public async Task<IActionResult> Create([FromBody] CreateProductBody body, Cance
 public sealed record CreateProductRequest(
     string Name,
     long   TenantId,
-    long   BranchId,
     Guid   CreatedByPublicId)
     : IRequest<CreateProductResponse>;
 ```
 
-### En la tabla SQL
+### En la entidad y EntityTypeConfiguration
 
-```sql
-ALTER TABLE dbo.Products
-    ADD COLUMN IF NOT EXISTS CreatedByPublicId UUID NULL,
-    ADD COLUMN IF NOT EXISTS UpdatedByPublicId UUID NULL;
+Agregar la propiedad a la entidad y mapearla en `{Entidad}Configuration`:
+
+```csharp
+// Products/Domain/Entities/Product.cs
+public Guid? CreatedByPublicId { get; init; }
+public Guid? UpdatedByPublicId { get; init; }
 ```
 
 ---

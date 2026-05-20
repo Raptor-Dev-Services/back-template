@@ -1,6 +1,6 @@
 # Multi-tenancy — cómo fluye el TenantId
 
-El sistema es multi-tenant: cada registro en la base de datos pertenece a un tenant específico y **ningún tenant puede ver ni modificar datos de otro**. Esto se garantiza en cada capa.
+El sistema es multi-tenant: cada registro en la base de datos pertenece a un tenant específico y **ningún tenant puede ver ni modificar datos de otro**. Esto se garantiza en cada capa, con EF Core como última línea de defensa a nivel de base de datos.
 
 ---
 
@@ -21,9 +21,9 @@ Controller                → lee CurrentTenantId desde User.FindFirstValue("ten
         ↓
 Request                   → TenantId viaja como parámetro del record
         ↓
-Handler                   → recibe TenantId del request, lo pasa al repositorio
+Handler                   → recibe TenantId del request, lo pasa al repositorio (si aplica)
         ↓
-...Sql class              → WHERE TenantId = @tenantId en todos los queries
+AppDbContext              → global query filter aplica WHERE TenantId = @currentTenantId automáticamente
         ↓
 PostgreSQL                → solo devuelve filas de ese tenant
 ```
@@ -39,9 +39,8 @@ Al hacer login exitoso, `LoginHandler` genera un JWT con los siguientes claims:
 _jwt.GenerateAccessToken(
     credential.PublicId,   // "sub" → identificador del usuario
     credential.Email,       // "email"
-    credential.Role,        // "role" → "Admin", "Manager", "Operator"
-    credential.TenantId,    // "tenant_id"
-    credential.BranchId     // "branch_id"
+    credential.Role,        // "role" → "Admin", "Manager", "User"
+    credential.TenantId     // "tenant_id"
 );
 ```
 
@@ -52,14 +51,13 @@ El JWT decodificado se ve así:
   "email":     "usuario@empresa.com",
   "role":      "Admin",
   "tenant_id": "1",
-  "branch_id": "2",
   "exp":       1735689600,
   "iss":       "back-template",
   "aud":       "back-template-clients"
 }
 ```
 
-**Nota:** `tenant_id` y `branch_id` viajan como strings en el JWT (los claims son siempre strings). Se parsean a `long` en el controller.
+**Nota:** `tenant_id` viaja como string en el JWT (los claims son siempre strings). Se parsea a `long` en el controller y en `AppDbContext`.
 
 ---
 
@@ -88,7 +86,9 @@ public sealed class TenantClaimsMiddleware
 
 Este middleware está en el pipeline después de `UseAuthentication` y `UseAuthorization`. En ese punto el JWT ya fue verificado y `HttpContext.User` tiene todos los claims.
 
-`ITenantContextAccessor` es un Singleton que enriquece los logs de Serilog y las trazas de OpenTelemetry con el `tenant_id` de cada request. No es la forma en que el handler obtiene el TenantId — eso se hace directamente en el controller.
+`ITenantContextAccessor` (Singleton) sirve a dos propósitos:
+1. **Enriquecer logs y trazas** con `tenant_id` en Serilog y OpenTelemetry.
+2. **Alimentar el global query filter** de `AppDbContext` — el DbContext (Scoped) lee `_tenantAccessor.Current?.TenantId` al construir cada query.
 
 ---
 
@@ -102,8 +102,6 @@ private long CurrentTenantId =>
 ```
 
 `User` es la propiedad de `ControllerBase` que apunta a `HttpContext.User` — ya tiene los claims porque `UseAuthentication` los llenó.
-
-Si el JWT no tiene `tenant_id`, `TryParse` devuelve `false` y `CurrentTenantId` es `0`. Esto nunca debería pasar en producción porque el JWT es generado por el propio sistema.
 
 ```csharp
 // Uso típico en un endpoint
@@ -130,7 +128,7 @@ El handler recibe el TenantId como parte del request. Nunca necesita acceder a `
 
 ---
 
-## Paso 5 — El Handler usa TenantId
+## Paso 5 — El Handler usa TenantId (si aplica)
 
 ```csharp
 public async Task<GetUserProfileResponse> Handle(
@@ -138,8 +136,7 @@ public async Task<GetUserProfileResponse> Handle(
 {
     var profile = await _profiles.GetByPublicIdAsync(
         request.PublicId,
-        request.TenantId,   // ← viene del request
-        cancellationToken);
+        cancellationToken);   // ← TenantId NO se pasa explícitamente al repo
 
     if (profile is null)
         return new GetUserProfileNotFoundFailure("Perfil no encontrado.");
@@ -148,55 +145,46 @@ public async Task<GetUserProfileResponse> Handle(
 }
 ```
 
-El handler pasa el TenantId al repositorio. El repositorio lo pasa a la clase SQL.
+> El handler no necesita pasar el TenantId al repositorio porque el **global query filter de EF Core lo aplica automáticamente** a nivel de `AppDbContext`. El repositorio no recibe el tenant como parámetro.
 
 ---
 
-## Paso 6 — El SQL filtra por TenantId
+## Paso 6 — EF Core filtra automáticamente
 
-**Todos** los queries de lectura y escritura incluyen `TenantId` en el `WHERE`:
+`AppDbContext.OnModelCreating` define el filtro global:
 
 ```csharp
-// En UserProfilesSql
-public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
-    _db.QuerySingleAsync<UserProfile>(
-        """
-        SELECT Id, PublicId, TenantId, BranchId, FullName, IsActive, CreatedAtUtc, UpdatedAtUtc
-        FROM dbo.UserProfiles
-        WHERE PublicId = @publicId AND TenantId = @tenantId AND IsActive = TRUE;
-        """,
-        new { publicId, tenantId },
-        cancellationToken: ct);
+mb.Entity<UserCredential>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+mb.Entity<UserProfile>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
 ```
 
-**Regla crítica:** ninguna consulta de lectura retorna datos de múltiples tenants. Si un query no filtra por `TenantId`, es un bug de seguridad.
+`CurrentTenantId` es una propiedad del DbContext que lee `_tenantAccessor.Current?.TenantId` en cada consulta:
+
+```csharp
+private long CurrentTenantId =>
+    long.TryParse(_tenantAccessor.Current?.TenantId, out var id) ? id : 0L;
+```
+
+Cualquier query sobre `UserProfile` o `UserCredential` recibirá automáticamente un `WHERE TenantId = @currentTenantId` — sin necesidad de agregarlo manualmente.
+
+**Regla crítica:** ninguna consulta retorna datos de múltiples tenants. El filtro global es la garantía de seguridad. Si un repositorio llama `IgnoreQueryFilters()` sin justificación, es un bug de seguridad.
 
 ---
 
-## Endpoints que no necesitan TenantId
+## Endpoints que no necesitan TenantId previo
 
 Solo `login` y `register` no necesitan TenantId previo — de hecho, son los que lo establecen. Están marcados con `[AllowAnonymous]` en `AuthController`.
 
-```csharp
-[AllowAnonymous]
-[HttpPost("login")]
-public async Task<IActionResult> Login([FromBody] LoginBody body, CancellationToken ct = default)
-```
-
-El `CurrentTenantId` en `AuthController` puede existir pero no se usa para estas rutas.
-
----
-
-## BranchId — funciona igual
-
-`BranchId` sigue el mismo patrón que `TenantId`:
+Los repositorios de credenciales usan `IgnoreQueryFilters()` porque al momento del login el `ITenantContextAccessor` no tiene tenant aún:
 
 ```csharp
-private long CurrentBranchId =>
-    long.TryParse(User.FindFirstValue("branch_id"), out var id) ? id : 0;
+// UserCredentialRepository.cs
+public async Task<UserCredential?> GetForLoginAsync(string email, CancellationToken ct = default) =>
+    await _db.Credentials
+        .IgnoreQueryFilters()   // ← sin tenant en el JWT aún
+        .AsNoTracking()
+        .FirstOrDefaultAsync(e => e.Email == email && e.IsActive, ct);
 ```
-
-Se usa cuando una operación necesita saber en qué sucursal está operando el usuario, además del tenant.
 
 ---
 
@@ -205,8 +193,8 @@ Se usa cuando una operación necesita saber en qué sucursal está operando el u
 | Capa | Cómo obtiene el TenantId |
 |------|--------------------------|
 | JWT | El login lo pone como claim `"tenant_id"` |
+| `TenantClaimsMiddleware` | Lo extrae del claim y lo guarda en `ITenantContextAccessor` |
 | Controller | `User.FindFirstValue("tenant_id")` → `CurrentTenantId` |
-| Request | Parámetro del record: `new GetXRequest(id, CurrentTenantId)` |
-| Handler | `request.TenantId` |
-| ...Sql | Parámetro en `WHERE TenantId = @tenantId` |
-| PostgreSQL | Filtra filas de la tabla |
+| Request | Parámetro del record (para lógica del handler) |
+| `AppDbContext` | Lee `_tenantAccessor.Current?.TenantId` en cada query |
+| PostgreSQL | Filtrado automático por EF Core global query filter |

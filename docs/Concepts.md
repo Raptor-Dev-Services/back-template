@@ -64,10 +64,8 @@ Modules/{Modulo}/
 ```
 Shared/
 ├── Database/
-│   ├── MainDbConnection.cs          → marcador de BD — clase vacía, identifica la conexión
-│   ├── ReadonlyDbConnection.cs      → marcador de BD secundaria (ejemplo)
-│   ├── DbConnectionFactory<T>.cs    → abre la conexión física a la BD
-│   └── DapperDbConnection<T>.cs     → ejecuta los queries Dapper
+│   ├── AppDbContext.cs              → DbContext central con todos los DbSets y query filters
+│   └── EntityTypeConfigurations/   → IEntityTypeConfiguration<T> por entidad
 └── Web/
     └── BaseApiController.cs         → clase base de todos los controllers
 ```
@@ -179,37 +177,41 @@ public sealed class UserProfileRepository : IUserProfileRepository
 
 ---
 
-### ...Sql class (Clase SQL)
+### Repository Implementation (Implementación de repositorio con EF Core)
 
-**Qué es:** la clase que tiene todos los queries SQL de una tabla específica.
+**Qué es:** la clase concreta que implementa la interfaz de repositorio usando `AppDbContext`.
 
-**Para qué sirve:** centralizar todo el SQL de una tabla en un solo lugar. Si el esquema de la tabla cambia, solo hay que modificar un archivo.
+**Para qué sirve:** ejecutar las operaciones de datos usando EF Core LINQ — lecturas, inserciones, actualizaciones y soft deletes.
 
-**Dónde vive:** `{Modulo}.Infrastructure/Persistence/SQLDB/`
+**Dónde vive:** `{Modulo}.Infrastructure/Repositories/`
 
 **Ejemplo:**
 ```csharp
-public sealed class UserProfilesSql
+public sealed class UserProfileRepository : IUserProfileRepository
 {
-    private readonly DapperDbConnection<MainDbConnection> _db;
-    public UserProfilesSql(DapperDbConnection<MainDbConnection> db) => _db = db;
+    private readonly AppDbContext _db;
+    public UserProfileRepository(AppDbContext db) => _db = db;
 
-    public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
-        _db.QuerySingleAsync<UserProfile>(
-            """
-            SELECT Id, PublicId, TenantId, FullName, IsActive
-            FROM dbo.UserProfiles
-            WHERE PublicId = @publicId AND TenantId = @tenantId;
-            """,
-            new { publicId, tenantId },
-            cancellationToken: ct);
+    public async Task<UserProfile?> GetByPublicIdAsync(Guid publicId, CancellationToken ct = default) =>
+        await _db.UserProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, ct);
+
+    public async Task<long> InsertAsync(Guid publicId, long tenantId, string fullName, CancellationToken ct = default)
+    {
+        var entity = new UserProfile { PublicId = publicId, TenantId = tenantId, FullName = fullName, IsActive = true };
+        _db.UserProfiles.Add(entity);
+        await _db.SaveChangesAsync(ct);
+        return entity.Id;
+    }
 }
 ```
 
 **Reglas clave:**
-- Un archivo `...Sql` por tabla.
-- Ningún SQL fuera de estas clases — ni en repositorios, ni en handlers.
-- Parámetros siempre con `new { param }`, nunca concatenación de strings.
+- Inyecta `AppDbContext` directamente — no hay clases intermedias.
+- `AsNoTracking()` en todas las lecturas que no van a modificarse.
+- `ExecuteUpdateAsync()` para actualizaciones (funciona con propiedades `init`).
+- `IgnoreQueryFilters()` solo cuando no hay tenant en contexto (auth).
 
 ---
 
@@ -462,7 +464,7 @@ public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserProfileBod
 ```csharp
 // Authentication.Contracts/Events/UserShouldBeCreatedIntegrationEvent.cs
 public sealed record UserShouldBeCreatedIntegrationEvent(
-    Guid PublicId, long TenantId, string FullName, string Email) : INotification;
+    Guid PublicId, long TenantId, string FullName, string Email, string Role) : INotification;
 
 // Users.Application escucha el evento (sin referenciar Authentication.Application)
 public sealed class UserShouldBeCreatedHandler
@@ -528,25 +530,36 @@ public abstract class BaseApiController : ControllerBase
 
 ---
 
-### Migration SQL (Migración)
+### EntityTypeConfiguration (Configuración de entidad EF Core)
 
-**Qué es:** un archivo `.sql` con el `CREATE TABLE IF NOT EXISTS` de una tabla nueva.
+**Qué es:** una clase que implementa `IEntityTypeConfiguration<T>` y define el mapeo de una entidad a su tabla en PostgreSQL.
 
-**Para qué sirve:** crear las tablas en la base de datos de forma automática al iniciar la aplicación. Son idempotentes — si la tabla ya existe, no hacen nada.
+**Para qué sirve:** centralizar la configuración de tabla, columnas, índices y FK de cada entidad en un solo lugar.
 
-**Dónde vive:** `Host.Api/Services/Schema Migration/Tables/`
+**Dónde vive:** `Shared/Database/EntityTypeConfigurations/`
 
-**Numeración:** en bloques de 10 por entidad:
+**Ejemplo:**
+```csharp
+public sealed class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
+{
+    public void Configure(EntityTypeBuilder<UserProfile> b)
+    {
+        b.ToTable("user_profiles");
+        b.HasKey(e => e.Id);
+        b.Property(e => e.Id).UseIdentityByDefaultColumn();
+        b.Property(e => e.PublicId).HasDefaultValueSql("gen_random_uuid()");
+        b.Property(e => e.FullName).HasMaxLength(200).IsRequired();
+        b.Property(e => e.CreatedAtUtc)
+            .HasColumnType("timestamp(0)")
+            .HasDefaultValueSql("timezone('utc', now())");
+        b.HasIndex(e => e.PublicId).IsUnique();
+    }
+}
 ```
-001_tenants.sql
-002_tenants_indexes.sql
-010_branches.sql
-011_branches_indexes.sql
-020_credentials.sql
-030_user_profiles.sql
-```
 
-**Regla clave:** nunca editar una migración ya aplicada — siempre agregar un archivo nuevo con número mayor.
+La tabla se crea automáticamente al iniciar la API via `EnsureCreatedAsync()` en `DatabaseInitializationService`.
+
+**Regla clave:** nunca definir mapeos directamente en `OnModelCreating` — usar configuraciones separadas. Nunca editar columnas existentes sin considerar los datos en producción.
 
 ---
 
@@ -563,7 +576,6 @@ public abstract class BaseApiController : ControllerBase
 // Infrastructure
 public static IServiceCollection AddUsersInfrastructureServices(this IServiceCollection services)
 {
-    services.AddScoped<UserProfilesSql>();
     services.AddScoped<IUserProfileRepository, UserProfileRepository>();
     return services;
 }
@@ -571,33 +583,28 @@ public static IServiceCollection AddUsersInfrastructureServices(this IServiceCol
 
 ---
 
-### DB Marker (Marcador de base de datos)
+### AppDbContext
 
-**Qué es:** una clase vacía cuyo nombre es la clave de la connection string en `appsettings.json`.
+**Qué es:** el `DbContext` central de EF Core que contiene todos los `DbSet<T>` del sistema y aplica los global query filters de multi-tenancy.
 
-**Para qué sirve:** identificar qué conexión de base de datos usar sin hardcodear strings. `DapperDbConnection<MainDbConnection>` lee `ConnectionStrings:MainDbConnection` del config.
+**Para qué sirve:** proporcionar un único punto de acceso a todos los datos del sistema, con filtros de tenant aplicados automáticamente.
 
-**Dónde vive:** `Shared/Database/`
+**Dónde vive:** `Shared/Database/AppDbContext.cs`
 
-**Ejemplo:**
+**Ejemplo de uso en repositorio:**
 ```csharp
-// MainDbConnection.cs — clase completamente vacía
-public sealed class MainDbConnection;
-
-// appsettings.json
+public sealed class UserProfileRepository : IUserProfileRepository
 {
-  "ConnectionStrings": {
-    "MainDbConnection": "Host=localhost;Database=mydb;Username=postgres;Password=..."
-  }
-}
+    private readonly AppDbContext _db;
+    public UserProfileRepository(AppDbContext db) => _db = db;
 
-// Uso en ...Sql class
-public sealed class UserProfilesSql
-{
-    private readonly DapperDbConnection<MainDbConnection> _db;
-    // ...
+    public async Task<UserProfile?> GetByPublicIdAsync(Guid publicId, CancellationToken ct = default) =>
+        await _db.UserProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, ct);
 }
 ```
+
+El global query filter agrega automáticamente `WHERE TenantId = @currentTenantId` a todas las consultas sobre entidades con filtro — sin necesidad de pasarlo como parámetro.
 
 ---
 
@@ -617,8 +624,7 @@ HTTP POST /api/users/profile
   UserProfileRepository    ← Infrastructure — implementa la interfaz
          │  usa UserProfilesSql
          ▼
-  UserProfilesSql          ← Infrastructure — ejecuta el SQL
-         │  usa DapperDbConnection<MainDbConnection>
+  AppDbContext             ← Shared/Database — EF Core query con global filter
          ▼
   PostgreSQL               ← base de datos real
          │
@@ -652,12 +658,10 @@ HTTP Response  { data: {...}, isSuccess: true, message: null, utcTimeStamp: "...
 | Response (base) | Application | `UseCases/{Accion}/Responses/` | Tipo base del resultado |
 | Success | Application | `UseCases/{Accion}/Responses/` | Resultado exitoso |
 | Failure | Application | `UseCases/{Accion}/Responses/` | Resultado fallido |
-| ...Sql class | Infrastructure | `Persistence/SQLDB/` | Queries SQL de una tabla |
-| Repository Impl | Infrastructure | `Repositories/` | Implementación concreta del repo |
+| Entity config | Shared/Database | `EntityTypeConfigurations/` | Mapeo EF Core de tabla, columnas, índices |
+| Repository Impl | Infrastructure | `Repositories/` | Implementación concreta del repo (AppDbContext) |
 | Controller | Presentation | `Controllers/` | Endpoint HTTP |
 | Presenter | Presentation | `Presenters/` | Traduce response a HTTP |
 | RequestBody | Presentation | `RequestBodies/` | Body JSON del POST/PUT |
 | Integration Event | Contracts | `Events/` | Mensaje entre módulos |
-| Migration SQL | Host.Api | `Services/Schema Migration/Tables/` | Crea tablas en la BD |
-| DB Marker | Shared/Database | `Shared/Database/` | Identifica la connection string |
 | ServiceCollectionEx | cada capa | raíz de capa | Registro DI de la capa |

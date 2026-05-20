@@ -153,12 +153,12 @@ public async Task<LoginResponse> Handle(LoginRequest req, CancellationToken ct)
     if (credential is null || !_hasher.Verify(req.Password, credential.PasswordHash) || !credential.IsActive)
         return new LoginInvalidCredentialsFailure("Credenciales inválidas.");
 
-    var token = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId, credential.BranchId);
+    var token = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId);
     return new LoginSuccess(new TokenDto(token, /* ... */));
 }
 
 // ✓ Excepción para infraestructura — dejar que suba
-var conn = await _factory.GetOpenConnectionAsync(ct);  // NpgsqlException si DB caída → 500 automático
+await _db.UserProfiles.ToListAsync(ct);  // NpgsqlException si DB caída → 500 automático
 ```
 
 ---
@@ -167,40 +167,34 @@ var conn = await _factory.GetOpenConnectionAsync(ct);  // NpgsqlException si DB 
 
 Borrado lógico: en lugar de eliminar la fila, se marca con `DeletedAt`.
 
-### Migración
+### EntityTypeConfiguration con filtro de soft delete
 
-```sql
-ALTER TABLE dbo.UserProfiles ADD COLUMN IF NOT EXISTS DeletedAt TIMESTAMP(0) NULL;
-
-CREATE INDEX IF NOT EXISTS IX_UserProfiles_Active
-    ON dbo.UserProfiles (PublicId) WHERE DeletedAt IS NULL;
-```
-
-### SQL con filtro de soft delete
+Agregar `DeletedAt` a la entidad y al `{Entidad}Configuration`:
 
 ```csharp
-public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
-    _db.QuerySingleAsync<UserProfile>(
-        """
-        SELECT Id, PublicId, TenantId, BranchId, FullName, IsActive, CreatedAtUtc, UpdatedAtUtc
-        FROM dbo.UserProfiles
-        WHERE PublicId = @publicId
-          AND TenantId = @tenantId
-          AND DeletedAt IS NULL;    -- filtro de soft delete
-        """,
-        new { publicId, tenantId }, cancellationToken: ct);
+// En UserProfileConfiguration.cs
+builder.Property(p => p.DeletedAt).HasColumnType("timestamp(0)");
+builder.HasIndex(p => p.PublicId).HasFilter("deleted_at IS NULL");
 
-public Task SoftDeleteAsync(Guid publicId, long tenantId, CancellationToken ct = default) =>
-    _db.ExecuteAsync(
-        """
-        UPDATE dbo.UserProfiles
-        SET DeletedAt    = timezone('utc', now()),
-            UpdatedAtUtc = timezone('utc', now())
-        WHERE PublicId   = @publicId
-          AND TenantId   = @tenantId
-          AND DeletedAt IS NULL;
-        """,
-        new { publicId, tenantId }, cancellationToken: ct);
+// Query filter global — solo registros no borrados y del tenant correcto
+builder.HasQueryFilter(p => p.DeletedAt == null && p.TenantId == currentTenantId);
+```
+
+### EF Core — repositorio con soft delete
+
+```csharp
+public async Task<UserProfile?> GetByPublicIdAsync(Guid publicId, CancellationToken ct = default) =>
+    await _db.UserProfiles
+        .AsNoTracking()
+        .FirstOrDefaultAsync(p => p.PublicId == publicId, ct);
+        // El query filter ya filtra por TenantId y DeletedAt == null
+
+public async Task SoftDeleteAsync(Guid publicId, CancellationToken ct = default) =>
+    await _db.UserProfiles
+        .Where(p => p.PublicId == publicId)
+        .ExecuteUpdateAsync(s => s
+            .SetProperty(p => p.DeletedAt,    DateTime.UtcNow)
+            .SetProperty(p => p.UpdatedAtUtc, DateTime.UtcNow), ct);
 ```
 
 ### Handler de disable/soft-delete
@@ -208,11 +202,11 @@ public Task SoftDeleteAsync(Guid publicId, long tenantId, CancellationToken ct =
 ```csharp
 public async Task<DisableUserProfileResponse> Handle(DisableUserProfileRequest request, CancellationToken ct)
 {
-    var profile = await _profiles.GetByPublicIdAsync(request.PublicId, request.TenantId, ct);
+    var profile = await _profiles.GetByPublicIdAsync(request.PublicId, ct);
     if (profile is null)
         return new DisableUserProfileNotFoundFailure("Perfil no encontrado.");
 
-    await _profiles.SoftDeleteAsync(request.PublicId, request.TenantId, ct);
+    await _profiles.SoftDeleteAsync(request.PublicId, ct);
     return new DisableUserProfileSuccess();
 }
 ```
