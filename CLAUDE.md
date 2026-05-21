@@ -496,6 +496,7 @@ public async Task Handle_WhenProfileExists_ReturnsSuccess()
 10. Los presenters se registran **manualmente** en `{Modulo}.Presentation/ServiceCollectionEx.cs`.
 11. Al terminar cualquier cambio: `dotnet build` desde `Host.Api` con **0 errores**.
 12. Todo módulo nuevo debe incluir `{Modulo}.Tests` con tests de arquitectura y unitarios.
+13. **Al crear un tag nuevo**, actualizar `TAGS.md` con una sección completa para ese tag: estructura de proyectos, stack, módulos/endpoints incluidos, cuándo usarlo, y comando de clonación. Luego commitear y pushear `TAGS.md` antes de pushear el tag.
 
 ---
 
