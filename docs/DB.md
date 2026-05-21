@@ -265,7 +265,7 @@ public async Task OperacionAtomicaAsync(CancellationToken ct = default)
 
 ```json
 "ConnectionStrings": {
-  "MainDbConnection": "Host=localhost;Port=5432;Database=back_template_local;Username=postgres;Password=postgres"
+  "MainDbConnection": "Host=localhost;Port=5432;Database=back_template_dev;Username=postgres;Password=postgres;SSL Mode=Disable"
 }
 ```
 

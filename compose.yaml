@@ -9,7 +9,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: "8080"
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=mydb;Username=app_user;Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__MainDbConnection: "Host=postgres;Port=5432;Database=mydb;Username=app_user;Password=${POSTGRES_PASSWORD}"
       Jwt__Key: "${JWT_KEY}"
     ports:
       - "8080:8080"
