@@ -5,7 +5,6 @@ using Common.Logging;
 using Common.Messaging;
 using Common.MultiTenancy;
 using Common.Observability;
-using Common.Web;
 using Host.Api.Extensions;
 using Shared.Infrastructure;
 using Shared.Infrastructure.Email;
@@ -26,27 +25,28 @@ builder.Services.AddObservability(
     builder.Configuration,
     builder.Configuration["Observability:MeterName"] ?? "BackTemplate.Api");
 
-// Multi-tenancy
+// --- Contexto de la peticion ------------------------------------------------------------------
+// El tenant lo publica TenantContextMiddleware desde el JWT; el usuario lo lee HttpCurrentUser.
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
-
-// Usuario de la peticion (auditoria de SaveChanges y bitacora).
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 
-// Base de datos: un solo DbContext; cada modulo aporta sus tablas. Las migraciones NO corren al arrancar:
-// son un paso aparte, con el rol dueno del esquema (ver docs/adr y scripts/dev-db.sh).
+// --- Base de datos ----------------------------------------------------------------------------
+// Un solo DbContext; cada modulo aporta sus tablas. Las migraciones NO corren al arrancar: son un paso aparte,
+// con el rol dueno del esquema (scripts/dev-db.sh en desarrollo, el pipeline de deploy en produccion).
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException(
         "Falta ConnectionStrings:DefaultConnection. Copia .env.example a .env o define ConnectionStrings__DefaultConnection.");
 builder.Services.AddAppDatabase(connectionString);
 
-// Correo saliente (SMTP real si hay Smtp:Host; en desarrollo sin SMTP, al log; fuera de desarrollo, falla fuerte).
+// --- Servicios transversales ------------------------------------------------------------------
 builder.Services.AddAppEmail(builder.Configuration);
 
 // Mediador de Common, SIN escaneo de ensamblados: cada modulo registra sus handlers.
 builder.Services.AddMediator();
 
+// --- Modulos ----------------------------------------------------------------------------------
 builder.Services.AddTenancyApplicationServices();
 builder.Services.AddTenancyInfrastructureServices();
 builder.Services.AddTenancyWebApiServices();
@@ -59,31 +59,26 @@ builder.Services.AddAuthenticationApplicationServices();
 builder.Services.AddAuthenticationInfrastructureServices();
 builder.Services.AddAuthenticationWebApiServices();
 
-// Un solo formato de error para toda la API (filtro global, modelo invalido, middleware, estado vacio).
+// --- API --------------------------------------------------------------------------------------
 builder.Services.AddApiControllers();
-
-builder.Services.AddHealthServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
-builder.Services.AddLocalhostCors();
+builder.Services.AddHttpEdge(builder.Configuration, builder.Environment);
+builder.Services.AddHealthServices(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerWithJwt();
+builder.Services.AddSwaggerWithJwt(builder.Configuration);
 
 var app = builder.Build();
 
-app.UseApiErrorHandling();
+// --- Pipeline (el orden es parte de la seguridad; ver HttpEdgeExtensions.UseHttpEdge) -----------
+app.UseHttpEdge();          // IP real, correlacion, cabeceras de seguridad, HSTS
+app.UseApiErrorHandling();  // un solo formato de error para todo lo de abajo
+app.UseSwaggerIfEnabled();
 
-if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Local") || app.Environment.IsEnvironment("Staging"))
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseCorrelationId();
-
-app.UseCors(CorsExtensions.PolicyName);
+app.UseCors(HttpEdgeExtensions.CorsPolicy);
 app.UseAuthentication();
+app.UseRateLimitingIfEnabled();               // despues de autenticar: la politica por usuario lee el sub validado
 app.UseAuthorization();
-app.UseMiddleware<TenantContextMiddleware>(); // DESPUES de autenticar: el tenant sale del JWT ya validado.
+app.UseMiddleware<TenantContextMiddleware>(); // despues de autenticar: el tenant sale del JWT ya validado
 
 app.MapControllers();
 app.MapHealth();

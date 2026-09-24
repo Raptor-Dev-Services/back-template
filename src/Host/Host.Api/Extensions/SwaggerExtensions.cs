@@ -1,37 +1,55 @@
 using Microsoft.OpenApi;
-using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Host.Api.Extensions;
 
 public static class SwaggerExtensions
 {
-    public static IServiceCollection AddSwaggerWithJwt(this IServiceCollection services)
+    /// <summary>
+    /// OpenAPI con el esquema Bearer. Los modulos estan aislados y pueden repetir nombres de tipo (dos
+    /// <c>CreateBody</c> en modulos distintos): el schemaId por defecto usa el nombre corto, colisiona y tumba el
+    /// documento completo. El nombre completo del tipo los desambigua.
+    /// </summary>
+    public static IServiceCollection AddSwaggerWithJwt(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSwaggerGen(ConfigureSwagger);
+        services.AddSwaggerGen(options =>
+        {
+            options.SwaggerDoc("v1", new OpenApiInfo
+            {
+                Title = configuration["Swagger:Title"] ?? "back-template API",
+                Version = "v1",
+            });
+            options.CustomSchemaIds(type => type.FullName?.Replace('+', '.'));
+
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Name = "Authorization",
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                In = ParameterLocation.Header,
+                Description = "Access token JWT (sin el prefijo Bearer).",
+            });
+            options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
+            {
+                { new OpenApiSecuritySchemeReference("Bearer"), [] },
+            });
+        });
+
         return services;
     }
 
-    private static void ConfigureSwagger(SwaggerGenOptions options)
+    /// <summary>
+    /// Swagger solo en Development, o donde <c>Swagger:Enabled=true</c> lo pida explicitamente. En produccion el
+    /// contrato completo de la API no se publica por omision.
+    /// </summary>
+    public static WebApplication UseSwaggerIfEnabled(this WebApplication app)
     {
-        options.SwaggerDoc("v1", new OpenApiInfo
+        if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled"))
         {
-            Title   = "Back Template API",
-            Version = "v1"
-        });
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
 
-        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-        {
-            Name         = "Authorization",
-            Type         = SecuritySchemeType.Http,
-            Scheme       = "bearer",
-            BearerFormat = "JWT",
-            In           = ParameterLocation.Header,
-            Description  = "Ingresa el token JWT sin el prefijo Bearer."
-        });
-
-        options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
-        {
-            { new OpenApiSecuritySchemeReference("Bearer"), [] }
-        });
+        return app;
     }
 }
