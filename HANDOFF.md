@@ -5,8 +5,9 @@ Actualizado: 2026-09-24. Rama `main`, sin empujar (los commits son locales hasta
 ## Que hay
 
 El chasis generico de SaaS multi-tenant descrito en README y CHANGELOG, portado del chasis de un producto real
-sin su logica de negocio. Build `-warnaserror` en 0/0 y 171 pruebas en verde:
-Shared 26, Users 2, Authentication 22, Architecture 36, Integracion 85 (Postgres real por Testcontainers).
+sin su logica de negocio. Build `-warnaserror` en 0/0 y 194 pruebas en verde:
+Shared 26, Users 2, Authentication 22, Tenancy 20, Architecture 36, Integracion 88 (Postgres real por
+Testcontainers).
 
 ## Como retomar
 

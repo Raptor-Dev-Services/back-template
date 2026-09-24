@@ -21,12 +21,15 @@ de autenticacion cambian.
 - Salud: `/health/live` y `/health/ready` (Postgres, almacenamiento de objetos).
 - Observabilidad: Serilog JSON, Seq, correlation id, OTLP opcional.
 - Bitacora de acciones del tenant (`/api/v1/audit-log`).
-- Tareas programadas con despachador unico, reclamo atomico y operacion reservada al tenant operador.
+- Tareas programadas con despachador unico, reclamo atomico y operacion reservada al tenant operador. Dos de
+  ejemplo, en seco por omision: purga de sesiones vencidas y purga de objetos huerfanos del bucket.
 - Guard de tenant suspendido para tokens ya emitidos.
 - Almacenamiento de objetos (MinIO/S3) con propiedad por tenant y firma de bytes.
 - Imagen chiseled con sonda .NET y esquema de su version; compose de desarrollo contra el devstack;
   compose de produccion con Caddy.
 - CI (build 0/0, pruebas con Postgres real, imagen, gitleaks), deploy por tag, rollback, puerta de dependencias.
+  Acciones fijadas por SHA y Dependabot para mantenerlas.
+- Un fallo de validacion responde 400, igual que una peticion malformada (ADR-0007).
 
 ### Quitado
 - `POST /api/auth/register` anonimo, `EnsureCreated`, Prometheus `/metrics`, `/api/health`, los compose que

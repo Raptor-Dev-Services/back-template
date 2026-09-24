@@ -59,12 +59,12 @@ propios (mismos puertos: chocan con el devstack si esta arriba). Luego `PG_CONTA
 En contenedor, la API habla con MinIO por `minio:9000` pero **firma** las URLs con `localhost:9000`
 (`ObjectStorage__PublicEndpoint`): la firma S3 incluye el host y el navegador no resuelve `minio`.
 
-## Lo que el devstack todavia no sabe de este repo
+## Lo que el devstack ya sabe de este repo
 
-Este repo no edita el devstack. Filas a agregar alla:
+Desde 2026-09-24 el devstack lista a back-template en `devstack/PUERTOS.md` (API `5060`, web `5179`, base
+`backtemplate`, rol `backtemplate_app`, bucket `backtemplate`) y su init crea los dos roles, la base y el bucket
+en un volumen nuevo. En un devstack que ya estaba levantado antes de esa fecha, el init no vuelve a correr: ahi
+lo sigue creando `./scripts/dev-db.sh provision`, que es idempotente y convive con el init.
 
-- `devstack/PUERTOS.md`: back-template, API `5060`, base `backtemplate`, rol `backtemplate_app`, salud
-  `/health/ready` (checks `postgres`, `object-storage`), bucket `backtemplate`.
-- init de Postgres del devstack (opcional, solo para maquinas nuevas): roles `backtemplate_owner` (BYPASSRLS) y
-  `backtemplate_app` (NOBYPASSRLS) y base `backtemplate`, iguales a `scripts/db/provision-devstack.sql`.
-- init de MinIO (opcional): bucket privado `backtemplate`.
+**Un producto que nace de esta plantilla cambia puerto, base, roles y bucket en su primer commit** y agrega su
+propia fila al devstack; si se queda con los de la plantilla, choca con ella la primera vez que se levanten juntas.
