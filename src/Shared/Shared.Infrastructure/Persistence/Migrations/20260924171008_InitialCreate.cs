@@ -16,6 +16,35 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 name: "public");
 
             migrationBuilder.CreateTable(
+                name: "AuditLog",
+                schema: "public",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    OccurredAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Action = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    EntityType = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    EntityId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    Summary = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false),
+                    Reason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    ActorUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    TenantId = table.Column<long>(type: "bigint", nullable: false),
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    DeletedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DeletedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AuditLog", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Permission",
                 schema: "public",
                 columns: table => new
@@ -313,6 +342,24 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_AuditLog_TenantId",
+                schema: "public",
+                table: "AuditLog",
+                column: "TenantId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AuditLog_TenantId_Action",
+                schema: "public",
+                table: "AuditLog",
+                columns: new[] { "TenantId", "Action" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AuditLog_TenantId_OccurredAtUtc",
+                schema: "public",
+                table: "AuditLog",
+                columns: new[] { "TenantId", "OccurredAtUtc" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PasswordSetupToken_CredentialId_ConsumedAtUtc",
                 schema: "public",
                 table: "PasswordSetupToken",
@@ -492,6 +539,10 @@ namespace Shared.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "AuditLog",
+                schema: "public");
+
             migrationBuilder.DropTable(
                 name: "PasswordSetupToken",
                 schema: "public");

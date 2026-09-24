@@ -7,6 +7,7 @@ using Authentication.Domain.Entities;
 using Authentication.Domain.Rbac;
 using Authentication.Domain.Repositories;
 using Common.Messaging;
+using Shared.Kernel.Audit;
 using Shared.Kernel.Context;
 using Shared.Kernel.Security;
 using Tenancy.Contracts.Interfaces;
@@ -33,6 +34,7 @@ internal sealed class BootstrapTenantHandler(
     IPasswordHasher hasher,
     IMediator mediator,
     ITenantScope tenantScope,
+    IAuditLog audit,
     IUnitOfWork unitOfWork) : IRequestHandler<BootstrapTenantRequest, BootstrapTenantResponse>
 {
     public async Task<BootstrapTenantResponse> Handle(BootstrapTenantRequest request, CancellationToken cancellationToken)
@@ -81,6 +83,8 @@ internal sealed class BootstrapTenantHandler(
             rbac.AssignRole(tenant.Id, credential.Id, admin.Id);
 
             await mediator.Publish(new UserShouldBeCreatedIntegrationEvent(credential.PublicId, tenant.Id, fullName, email), ct);
+            audit.Append("tenant.bootstrapped", "Tenant", tenant.PublicId.ToString(),
+                $"Primer administrador creado por bootstrap ({credential.PublicId}).");
             await unitOfWork.SaveChangesAsync(ct);
 
             return new BootstrapTenantSuccess(new BootstrapResultDto(tenant.PublicId, tenant.Id, tenant.Slug, credential.PublicId, email));

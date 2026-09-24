@@ -42,3 +42,12 @@ DROP POLICY IF EXISTS userprofile_tenant_isolation ON public."UserProfile";
 CREATE POLICY userprofile_tenant_isolation ON public."UserProfile"
     USING ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint)
     WITH CHECK ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint);
+
+-- Bitacora de acciones: cada tenant ve solo la suya, y una accion de sistema (bootstrap) entra con el tenant
+-- fijado por ITenantScope.
+ALTER TABLE public."AuditLog" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."AuditLog" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS auditlog_tenant_isolation ON public."AuditLog";
+CREATE POLICY auditlog_tenant_isolation ON public."AuditLog"
+    USING ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint)
+    WITH CHECK ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint);

@@ -8,6 +8,7 @@ using Authentication.Domain.Entities;
 using Authentication.Domain.Rbac;
 using Authentication.Domain.Repositories;
 using Common.Messaging;
+using Shared.Kernel.Audit;
 using Shared.Kernel.Context;
 using Shared.Kernel.Security;
 
@@ -24,6 +25,7 @@ internal sealed class InviteUserHandler(
     IPasswordHasher hasher,
     PasswordSetupMailer mailer,
     IMediator mediator,
+    IAuditLog audit,
     IUnitOfWork unitOfWork) : IRequestHandler<InviteUserRequest, InviteUserResponse>
 {
     public async Task<InviteUserResponse> Handle(InviteUserRequest request, CancellationToken cancellationToken)
@@ -71,6 +73,10 @@ internal sealed class InviteUserHandler(
                 rbac.AssignRole(request.TenantId, credential.Id, role.Id);
 
             await mediator.Publish(new UserShouldBeCreatedIntegrationEvent(credential.PublicId, request.TenantId, fullName, email), ct);
+
+            // Un alta con roles es un cambio de ACCESO: queda quien la hizo y que concedio.
+            audit.Append("user.invited", "UserCredential", credential.PublicId.ToString(),
+                $"Alta por invitacion con roles: {string.Join(", ", roles.Select(r => r.Code).Order())}");
             await mailer.SendAsync(credential, PasswordSetupPurpose.Invitation, ct);
 
             return new InviteUserSuccess(new InvitedUserDto(credential.PublicId, email, [.. roles.Select(r => r.Code)]));

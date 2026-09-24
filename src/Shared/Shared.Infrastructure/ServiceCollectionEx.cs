@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Shared.Infrastructure.Audit;
 using Shared.Infrastructure.Persistence;
+using Shared.Kernel.Audit;
 using Shared.Kernel.Context;
 
 namespace Shared.Infrastructure;
@@ -21,6 +23,11 @@ public static class ServiceCollectionEx
 
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<ITenantScope, TenantScope>();
+
+        // Bitacora de acciones: una implementacion, dos puertos (escribir en la transaccion del caso de uso, leer).
+        services.AddScoped<EfAuditLog>();
+        services.AddScoped<IAuditLog>(provider => provider.GetRequiredService<EfAuditLog>());
+        services.AddScoped<IAuditLogReader>(provider => provider.GetRequiredService<EfAuditLog>());
 
         services.AddHostedService<RlsRoleGuard>();
         return services;

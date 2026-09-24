@@ -3,6 +3,7 @@ using Authentication.Application.UseCases.SetUserLock.Responses;
 using Authentication.Domain.Entities;
 using Authentication.Domain.Repositories;
 using Common.Messaging;
+using Shared.Kernel.Audit;
 using Shared.Kernel.Context;
 
 namespace Authentication.Application.UseCases.SetUserLock;
@@ -10,6 +11,7 @@ namespace Authentication.Application.UseCases.SetUserLock;
 internal sealed class SetUserLockHandler(
     IUserCredentialRepository credentials,
     IRefreshTokenRepository refreshTokens,
+    IAuditLog audit,
     IUnitOfWork unitOfWork) : IRequestHandler<SetUserLockRequest, SetUserLockResponse>
 {
     public async Task<SetUserLockResponse> Handle(SetUserLockRequest request, CancellationToken cancellationToken)
@@ -26,8 +28,12 @@ internal sealed class SetUserLockHandler(
         return await unitOfWork.ExecuteAsync<SetUserLockResponse>(async ct =>
         {
             target.IsLocked = request.Locked;
-            if (request.Locked)
-                await refreshTokens.RevokeAllActiveAsync(target.Id, DateTime.UtcNow, RevocationReasons.Locked, ct);
+            var revoked = request.Locked
+                ? await refreshTokens.RevokeAllActiveAsync(target.Id, DateTime.UtcNow, RevocationReasons.Locked, ct)
+                : 0;
+
+            audit.Append(request.Locked ? "user.locked" : "user.unlocked", "UserCredential", target.PublicId.ToString(),
+                request.Locked ? $"Cuenta bloqueada; {revoked} sesion(es) revocada(s)." : "Cuenta desbloqueada.");
 
             await unitOfWork.SaveChangesAsync(ct);
             return new SetUserLockSuccess(new AcceptedDto());

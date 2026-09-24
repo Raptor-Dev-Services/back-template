@@ -10,6 +10,7 @@ using Authentication.Domain.Rbac;
 using Authentication.Domain.Repositories;
 using Common.Messaging;
 using NSubstitute;
+using Shared.Kernel.Audit;
 using Shared.Kernel.Context;
 using Shared.Kernel.Email;
 using Tenancy.Contracts.Interfaces;
@@ -28,7 +29,7 @@ public sealed class ProvisioningHandlerTests
     private readonly InlineUnitOfWork _unitOfWork = new();
 
     private BootstrapTenantHandler Bootstrap(string? configuredSecret) =>
-        new(new BootstrapOptions { Secret = configuredSecret }, _tenancy, _credentials, _rbac, _hasher, _mediator, _scope, _unitOfWork);
+        new(new BootstrapOptions { Secret = configuredSecret }, _tenancy, _credentials, _rbac, _hasher, _mediator, _scope, Substitute.For<IAuditLog>(), _unitOfWork);
 
     private static BootstrapTenantRequest Request(string? secret) =>
         new(secret, "Empresa", "empresa", "admin@example.test", "Contrasena-Segura-123", "Admin");
@@ -74,7 +75,7 @@ public sealed class ProvisioningHandlerTests
 
         var mailer = new PasswordSetupMailer(Substitute.For<IPasswordSetupTokenRepository>(), Substitute.For<IEmailSender>(),
             new WebOptions(), TestSessions.Options, _unitOfWork);
-        var handler = new InviteUserHandler(_credentials, _rbac, _hasher, mailer, _mediator, _unitOfWork);
+        var handler = new InviteUserHandler(_credentials, _rbac, _hasher, mailer, _mediator, Substitute.For<IAuditLog>(), _unitOfWork);
 
         var result = await handler.Handle(new InviteUserRequest(3, actorId, "nuevo@example.test", "Nuevo", [RoleCodes.Admin]), default);
 

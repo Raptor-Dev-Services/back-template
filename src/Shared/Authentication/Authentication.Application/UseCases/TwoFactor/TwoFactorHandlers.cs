@@ -5,6 +5,7 @@ using Authentication.Domain.Abstractions;
 using Authentication.Domain.Entities;
 using Authentication.Domain.Repositories;
 using Common.Messaging;
+using Shared.Kernel.Audit;
 using Shared.Kernel.Context;
 
 namespace Authentication.Application.UseCases.TwoFactor;
@@ -78,6 +79,7 @@ internal sealed class DisableTwoFactorHandler(
     IUserCredentialRepository credentials,
     ITwoFactorRecoveryCodeRepository codes,
     SecondFactor secondFactor,
+    IAuditLog audit,
     IUnitOfWork unitOfWork) : IRequestHandler<DisableTwoFactorRequest, DisableTwoFactorResponse>
 {
     public async Task<DisableTwoFactorResponse> Handle(DisableTwoFactorRequest request, CancellationToken cancellationToken)
@@ -97,6 +99,7 @@ internal sealed class DisableTwoFactorHandler(
             credential.TotpSecretProtected = null;
             credential.LastTotpStep = 0;
             await codes.ConsumeAllAsync(credential.Id, nowUtc, ct);
+            audit.Append("user.2fa_disabled", "UserCredential", credential.PublicId.ToString(), "Segundo factor desactivado por su titular.");
             await unitOfWork.SaveChangesAsync(ct);
             return new DisableTwoFactorSuccess(new AcceptedDto());
         }, cancellationToken);
