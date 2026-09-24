@@ -66,7 +66,17 @@ public sealed class PostgresFixture : IAsyncLifetime
             await ExecuteAsync(OwnerConnectionString, await File.ReadAllTextAsync(rls));
     }
 
-    public Task DisposeAsync() => _container.DisposeAsync().AsTask();
+    private ApiFactory? _api;
+
+    /// <summary>La API real contra esta base, creada al primer uso y compartida por la coleccion.</summary>
+    public ApiFactory Api => _api ??= new ApiFactory(this);
+
+    public async Task DisposeAsync()
+    {
+        if (_api is not null)
+            await _api.DisposeAsync();
+        await _container.DisposeAsync();
+    }
 
     /// <summary>
     /// Un <see cref="AppDbContext"/> con todos los modulos, conectado como el rol indicado (por omision, la app).
@@ -75,12 +85,13 @@ public sealed class PostgresFixture : IAsyncLifetime
     public AppDbContext CreateDbContext(
         string? connectionString = null, ITenantContextAccessor? tenant = null, ICurrentUser? user = null)
     {
+        tenant ??= new FixedTenant(null);
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(connectionString ?? AppConnectionString)
+            .AddInterceptors(new TenantRlsConnectionInterceptor(tenant))
             .Options;
 
-        return new AppDbContext(options, tenant ?? new TenantContextAccessor(), user ?? NoCurrentUser.Instance,
-            AppDbContextFactory.Modules);
+        return new AppDbContext(options, tenant, user ?? NoCurrentUser.Instance, AppDbContextFactory.Modules);
     }
 
     public static async Task ExecuteAsync(string connectionString, string sql)
@@ -106,6 +117,18 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private string WithUser(string user, string password) =>
         new NpgsqlConnectionStringBuilder(SuperuserConnectionString) { Username = user, Password = password }.ConnectionString;
+}
+
+/// <summary>
+/// Tenant fijo por instancia. El accessor de Common guarda el tenant en un AsyncLocal ESTATICO: dos contextos
+/// creados en la misma prueba con tenants distintos se pisarian el uno al otro. Este no.
+/// </summary>
+public sealed class FixedTenant : ITenantContextAccessor
+{
+    public FixedTenant(long? tenantId) =>
+        Current = tenantId is { } id ? new TenantContext(id.ToString(System.Globalization.CultureInfo.InvariantCulture)) : null;
+
+    public TenantContext? Current { get; set; }
 }
 
 [CollectionDefinition(Name)]

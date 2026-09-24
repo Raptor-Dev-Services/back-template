@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="$(CommonRoot)Common.Web/Common.Web.csproj" />
     <ProjectReference Include="$(CommonRoot)Common.Messaging/Common.Messaging.csproj" />
+    <ProjectReference Include="$(CommonRoot)Common.MultiTenancy/Common.MultiTenancy.csproj" />
     <ProjectReference Include="../Shared.Kernel/Shared.Kernel.csproj" />
   </ItemGroup>
 

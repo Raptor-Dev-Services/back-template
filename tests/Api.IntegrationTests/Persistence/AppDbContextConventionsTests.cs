@@ -1,5 +1,4 @@
 using Api.IntegrationTests.Infrastructure;
-using Common.MultiTenancy;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Shared.Infrastructure.Persistence;
@@ -33,8 +32,7 @@ public sealed class AppDbContextConventionsTests(PostgresFixture pg)
         return tenant.Id;
     }
 
-    private static TenantContextAccessor TenantScope(long tenantId) =>
-        new() { Current = new TenantContext(tenantId.ToString()) };
+    private static FixedTenant TenantScope(long tenantId) => new(tenantId);
 
     [Fact]
     public async Task Insertar_sella_tenant_auditoria_y_actor_en_utc()

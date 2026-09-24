@@ -7,10 +7,10 @@ using Common.MultiTenancy;
 using Common.Observability;
 using Common.Web;
 using Host.Api.Extensions;
-using Host.Api.Middleware;
 using Shared.Infrastructure;
 using Shared.Kernel.Context;
 using Shared.Web;
+using Shared.Web.Tenancy;
 using Tenancy.Application;
 using Tenancy.Infrastructure;
 using Tenancy.Presentation;
@@ -79,7 +79,7 @@ app.UseCorrelationId();
 app.UseCors(CorsExtensions.PolicyName);
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseMiddleware<TenantClaimsMiddleware>();
+app.UseMiddleware<TenantContextMiddleware>(); // DESPUES de autenticar: el tenant sale del JWT ya validado.
 
 app.MapControllers();
 app.MapHealth();
