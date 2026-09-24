@@ -1,11 +1,11 @@
+using Shared.Kernel.Domain;
+
 namespace Authentication.Domain.Entities;
 
-public sealed class RefreshToken
+public sealed class RefreshToken : TenantEntity
 {
-    public long     Id           { get; init; }
-    public long     CredentialId { get; init; }
-    public string   Token        { get; init; } = string.Empty;
-    public DateTime ExpiresAtUtc { get; init; }
-    public bool     IsRevoked    { get; init; }
-    public DateTime CreatedAtUtc { get; init; }
+    public long CredentialId { get; set; }
+    public string Token { get; set; } = string.Empty;
+    public DateTime ExpiresAtUtc { get; set; }
+    public bool IsRevoked { get; set; }
 }

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pruebas contra un Postgres REAL (Testcontainers, requiere Docker): el esquema sale de las
+    migraciones de verdad, las policies del script de RLS de verdad, y la API se conecta con el rol
+    de la aplicacion (sin BYPASSRLS), igual que en produccion. EF InMemory no aplica ni RLS ni
+    timestamptz ni indices unicos, y por eso aqui no se usa.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="SSH.NET" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Host/Host.Api/Host.Api.csproj" />
+  </ItemGroup>
+
+  <!-- Los scripts SQL reales se copian al directorio de salida para aplicarlos al contenedor. -->
+  <ItemGroup>
+    <Content Include="../../src/Shared/Shared.Infrastructure/Persistence/Sql/*.sql"
+             LinkBase="sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

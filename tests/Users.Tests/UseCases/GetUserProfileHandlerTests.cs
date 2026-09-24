@@ -21,26 +21,22 @@ public sealed class GetUserProfileHandlerTests
             FullName     = "John Doe",
             IsActive     = true,
             CreatedAtUtc = DateTime.UtcNow,
-            UpdatedAtUtc = DateTime.UtcNow
+            UpdatedAtUtc = DateTime.UtcNow,
         };
-        _repo.GetByPublicIdAsync(profile.PublicId, 1, Arg.Any<CancellationToken>()).Returns(profile);
+        _repo.GetByPublicIdAsync(profile.PublicId, Arg.Any<CancellationToken>()).Returns(profile);
 
-        var result = await new GetUserProfileHandler(_repo)
-            .Handle(new GetUserProfileRequest(profile.PublicId, 1), default);
+        var result = await new GetUserProfileHandler(_repo).Handle(new GetUserProfileRequest(profile.PublicId), default);
 
         var success = Assert.IsType<GetUserProfileSuccess>(result);
-        Assert.NotNull(success.Data);
         Assert.Equal("John Doe", success.Data.FullName);
     }
 
     [Fact]
     public async Task Handle_WhenProfileNotFound_ReturnsNotFoundFailure()
     {
-        _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<long>(), Arg.Any<CancellationToken>())
-            .Returns((UserProfile?)null);
+        _repo.GetByPublicIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((UserProfile?)null);
 
-        var result = await new GetUserProfileHandler(_repo)
-            .Handle(new GetUserProfileRequest(Guid.NewGuid(), 1), default);
+        var result = await new GetUserProfileHandler(_repo).Handle(new GetUserProfileRequest(Guid.NewGuid()), default);
 
         Assert.IsType<GetUserProfileNotFoundFailure>(result);
     }

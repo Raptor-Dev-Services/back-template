@@ -12,7 +12,7 @@ public static class HealthExtensions
     {
         services.AddHealthChecks()
             .AddNpgSql(
-                connectionString: configuration.GetConnectionString("MainDbConnection")!,
+                connectionString: configuration.GetConnectionString("DefaultConnection")!,
                 name: "postgres",
                 failureStatus: HealthStatus.Unhealthy,
                 tags: ["db", "postgres"]);

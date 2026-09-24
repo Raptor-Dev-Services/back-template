@@ -39,7 +39,7 @@ internal sealed class RefreshTokenHandler : IRequestHandler<RefreshTokenRequest,
         var newRefreshToken = _jwt.GenerateRefreshToken();
         var expiry          = _jwt.GetRefreshTokenExpiry();
 
-        await _refreshTokens.InsertAsync(credential.Id, newRefreshToken, expiry, cancellationToken);
+        await _refreshTokens.InsertAsync(credential.TenantId, credential.Id, newRefreshToken, expiry, cancellationToken);
 
         return new RefreshTokenSuccess(new TokenDto(newAccessToken, newRefreshToken, expiry));
     }

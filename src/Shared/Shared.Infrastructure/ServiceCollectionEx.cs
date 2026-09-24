@@ -1,40 +1,18 @@
-using Common.MultiTenancy;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Shared.Infrastructure.Persistence;
 
 namespace Shared.Infrastructure;
 
 public static class ServiceCollectionEx
 {
-    public static IServiceCollection AddMainDatabase(this IServiceCollection services, IConfiguration configuration)
+    /// <summary>
+    /// Registra el <see cref="AppDbContext"/> contra Postgres. La cadena es la de la APLICACION (rol sin
+    /// DDL y sin BYPASSRLS); las migraciones corren aparte con el rol dueno del esquema.
+    /// </summary>
+    public static IServiceCollection AddAppDatabase(this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("MainDbConnection")));
-
-        services.AddHostedService<DatabaseInitializationService>();
-
+        services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
         return services;
     }
-}
-
-internal sealed class DatabaseInitializationService : IHostedService
-{
-    private readonly IServiceScopeFactory _scopeFactory;
-
-    public DatabaseInitializationService(IServiceScopeFactory scopeFactory) => _scopeFactory = scopeFactory;
-
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        using var scope = _scopeFactory.CreateScope();
-
-        var accessor = scope.ServiceProvider.GetRequiredService<ITenantContextAccessor>();
-        accessor.Current = new TenantContext("0");
-
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.EnsureCreatedAsync(cancellationToken);
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

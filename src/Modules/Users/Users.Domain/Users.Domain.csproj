@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Dominio puro: solo el nucleo compartido (entidades base), sin EF, ASP.NET ni el mediador. -->
+  <ItemGroup>
+    <ProjectReference Include="../../../Shared/Shared.Kernel/Shared.Kernel.csproj" />
+  </ItemGroup>
 
 </Project>

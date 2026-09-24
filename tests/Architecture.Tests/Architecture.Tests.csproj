@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <!--
+    Se referencia TODO para que los ensamblados lleguen al directorio de salida: las pruebas los cargan
+    por NOMBRE (Assembly.Load) y razonan sobre su IL. Es una referencia solo de analisis: no crea
+    acoplamiento de produccion entre modulos.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Host/Host.Api/Host.Api.csproj" />
+    <ProjectReference Include="../../src/Shared/Shared.Kernel/Shared.Kernel.csproj" />
+    <ProjectReference Include="../../src/Shared/Shared.Web/Shared.Web.csproj" />
+    <ProjectReference Include="../../src/Shared/Shared.Infrastructure/Shared.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Shared/Authentication/Authentication.Contracts/Authentication.Contracts.csproj" />
+    <ProjectReference Include="../../src/Shared/Authentication/Authentication.Domain/Authentication.Domain.csproj" />
+    <ProjectReference Include="../../src/Shared/Authentication/Authentication.Application/Authentication.Application.csproj" />
+    <ProjectReference Include="../../src/Shared/Authentication/Authentication.Infrastructure/Authentication.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Shared/Authentication/Authentication.Presentation/Authentication.Presentation.csproj" />
+    <ProjectReference Include="../../src/Modules/Tenancy/Tenancy.Contracts/Tenancy.Contracts.csproj" />
+    <ProjectReference Include="../../src/Modules/Tenancy/Tenancy.Domain/Tenancy.Domain.csproj" />
+    <ProjectReference Include="../../src/Modules/Tenancy/Tenancy.Application/Tenancy.Application.csproj" />
+    <ProjectReference Include="../../src/Modules/Tenancy/Tenancy.Infrastructure/Tenancy.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Modules/Tenancy/Tenancy.Presentation/Tenancy.Presentation.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Contracts/Users.Contracts.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Domain/Users.Domain.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Application/Users.Application.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Infrastructure/Users.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Presentation/Users.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>

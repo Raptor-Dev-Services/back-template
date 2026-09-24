@@ -1,68 +1,42 @@
 using Microsoft.EntityFrameworkCore;
-using Shared.Infrastructure;
+using Shared.Infrastructure.Persistence;
 using Users.Domain.Entities;
 using Users.Domain.Repositories;
 
 namespace Users.Infrastructure.Repositories;
 
-public sealed class UserProfileRepository : IUserProfileRepository
+/// <summary>
+/// Las escrituras van por entidades RASTREADAS y <c>SaveChanges</c>, no por <c>ExecuteUpdate</c>: es lo que
+/// hace que el DbContext selle la auditoria (quien y cuando) y que la concurrencia optimista aplique.
+/// </summary>
+internal sealed class UserProfileRepository(AppDbContext db) : IUserProfileRepository
 {
-    private readonly AppDbContext _db;
+    private DbSet<UserProfile> Profiles => db.Set<UserProfile>();
 
-    public UserProfileRepository(AppDbContext db) => _db = db;
+    public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, CancellationToken cancellationToken = default) =>
+        Profiles.AsNoTracking().FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, cancellationToken);
 
-    public Task<UserProfile?> GetByPublicIdAsync(Guid publicId, long tenantId, CancellationToken cancellationToken = default) =>
-        _db.UserProfiles
-            .AsNoTracking()
-            .FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, cancellationToken);
+    public Task<UserProfile?> GetForUpdateAsync(Guid publicId, CancellationToken cancellationToken = default) =>
+        Profiles.FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, cancellationToken);
 
-    public async Task<IReadOnlyCollection<UserProfile>> GetPagedAsync(long tenantId, int page, int pageSize, CancellationToken cancellationToken = default) =>
-        await _db.UserProfiles
+    public async Task<IReadOnlyList<UserProfile>> GetPagedAsync(int page, int pageSize, CancellationToken cancellationToken = default) =>
+        await Profiles
             .AsNoTracking()
             .Where(e => e.IsActive)
             .OrderByDescending(e => e.CreatedAtUtc)
+            .ThenBy(e => e.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToArrayAsync(cancellationToken);
 
-    public Task<int> GetCountAsync(long tenantId, CancellationToken cancellationToken = default) =>
-        _db.UserProfiles
-            .CountAsync(e => e.IsActive, cancellationToken);
+    public Task<int> CountAsync(CancellationToken cancellationToken = default) =>
+        Profiles.CountAsync(e => e.IsActive, cancellationToken);
 
-    public async Task InsertAsync(Guid publicId, long tenantId, string fullName, CancellationToken cancellationToken = default)
+    public async Task AddAsync(UserProfile profile, CancellationToken cancellationToken = default)
     {
-        var profile = new UserProfile
-        {
-            PublicId = publicId,
-            TenantId = tenantId,
-            FullName = fullName,
-        };
-
-        _db.UserProfiles.Add(profile);
-        await _db.SaveChangesAsync(cancellationToken);
+        Profiles.Add(profile);
+        await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<bool> UpdateAsync(Guid publicId, long tenantId, string fullName, CancellationToken cancellationToken = default)
-    {
-        var rows = await _db.UserProfiles
-            .Where(e => e.PublicId == publicId && e.IsActive)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(e => e.FullName,     fullName)
-                .SetProperty(e => e.UpdatedAtUtc, DateTime.UtcNow),
-                cancellationToken);
-
-        return rows > 0;
-    }
-
-    public async Task<bool> DisableAsync(Guid publicId, long tenantId, CancellationToken cancellationToken = default)
-    {
-        var rows = await _db.UserProfiles
-            .Where(e => e.PublicId == publicId && e.IsActive)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(e => e.IsActive,     false)
-                .SetProperty(e => e.UpdatedAtUtc, DateTime.UtcNow),
-                cancellationToken);
-
-        return rows > 0;
-    }
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) => db.SaveChangesAsync(cancellationToken);
 }

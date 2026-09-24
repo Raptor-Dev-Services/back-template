@@ -5,20 +5,18 @@ using Users.Domain.Repositories;
 
 namespace Users.Application.UseCases.GetUserProfile;
 
-internal sealed class GetUserProfileHandler : IRequestHandler<GetUserProfileRequest, GetUserProfileResponse>
+internal sealed class GetUserProfileHandler(IUserProfileRepository profiles)
+    : IRequestHandler<GetUserProfileRequest, GetUserProfileResponse>
 {
-    private readonly IUserProfileRepository _profiles;
-
-    public GetUserProfileHandler(IUserProfileRepository profiles) => _profiles = profiles;
-
     public async Task<GetUserProfileResponse> Handle(GetUserProfileRequest request, CancellationToken cancellationToken)
     {
-        var profile = await _profiles.GetByPublicIdAsync(request.PublicId, request.TenantId, cancellationToken);
+        // Un perfil de otro tenant no existe para este llamador: el filtro lo oculta y la respuesta es la
+        // misma que para un id inventado (404), sin confirmar que el id existe en otra parte.
+        var profile = await profiles.GetByPublicIdAsync(request.PublicId, cancellationToken);
         if (profile is null)
             return new GetUserProfileNotFoundFailure("Perfil de usuario no encontrado.");
 
         return new GetUserProfileSuccess(new UserProfileDto(
-            profile.PublicId, profile.FullName, profile.IsActive,
-            profile.CreatedAtUtc, profile.UpdatedAtUtc));
+            profile.PublicId, profile.FullName, profile.IsActive, profile.CreatedAtUtc, profile.UpdatedAtUtc));
     }
 }

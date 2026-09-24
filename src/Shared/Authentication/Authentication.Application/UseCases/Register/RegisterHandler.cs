@@ -39,13 +39,14 @@ internal sealed class RegisterHandler : IRequestHandler<RegisterRequest, Registe
         if (tenant is null || !tenant.IsActive)
             return new RegisterTenantNotFoundFailure("Empresa no encontrada o inactiva.");
 
-        var exists = await _credentials.ExistsByEmailAsync(request.Email, cancellationToken);
+        var email  = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+        var exists = await _credentials.ExistsByEmailAsync(email, cancellationToken);
         if (exists)
             return new RegisterEmailConflictFailure("El correo ya está registrado.");
 
         var hash       = _hasher.Hash(request.Password);
         var credential = await _credentials.InsertAsync(
-            request.TenantId, request.Email, hash, request.Role,
+            request.TenantId, email, hash, request.Role,
             cancellationToken);
 
         await _mediator.Publish(new UserShouldBeCreatedIntegrationEvent(
@@ -59,7 +60,7 @@ internal sealed class RegisterHandler : IRequestHandler<RegisterRequest, Registe
         var refreshToken = _jwt.GenerateRefreshToken();
         var expiry       = _jwt.GetRefreshTokenExpiry();
 
-        await _refreshTokens.InsertAsync(credential.Id, refreshToken, expiry, cancellationToken);
+        await _refreshTokens.InsertAsync(credential.TenantId, credential.Id, refreshToken, expiry, cancellationToken);
 
         return new RegisterSuccess(new TokenDto(accessToken, refreshToken, expiry));
     }

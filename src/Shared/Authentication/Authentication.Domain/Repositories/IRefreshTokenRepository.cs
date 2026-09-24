@@ -5,7 +5,6 @@ namespace Authentication.Domain.Repositories;
 public interface IRefreshTokenRepository
 {
     Task<RefreshToken?> GetByTokenAsync(string token, CancellationToken cancellationToken = default);
-    Task InsertAsync(long credentialId, string token, DateTime expiresAtUtc, CancellationToken cancellationToken = default);
+    Task InsertAsync(long tenantId, long credentialId, string token, DateTime expiresAtUtc, CancellationToken cancellationToken = default);
     Task<bool> RevokeAsync(string token, CancellationToken cancellationToken = default);
-    Task RevokeAllByCredentialIdAsync(long credentialId, CancellationToken cancellationToken = default);
 }

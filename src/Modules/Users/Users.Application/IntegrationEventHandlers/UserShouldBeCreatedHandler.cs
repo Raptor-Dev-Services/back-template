@@ -1,29 +1,27 @@
 using Authentication.Contracts.Events;
 using Common.Messaging;
 using Users.Contracts.Events;
+using Users.Domain.Entities;
 using Users.Domain.Repositories;
 
 namespace Users.Application.IntegrationEventHandlers;
 
-internal sealed class UserShouldBeCreatedHandler : INotificationHandler<UserShouldBeCreatedIntegrationEvent>
+/// <summary>
+/// Crea el perfil cuando Authentication da de alta una credencial. El tenant viaja EXPLICITO en el evento:
+/// el alta puede ocurrir sin contexto de tenant en la peticion (el bootstrap del primer administrador).
+/// </summary>
+internal sealed class UserShouldBeCreatedHandler(IUserProfileRepository profiles, IMediator mediator)
+    : INotificationHandler<UserShouldBeCreatedIntegrationEvent>
 {
-    private readonly IUserProfileRepository _profiles;
-    private readonly IMediator              _mediator;
-
-    public UserShouldBeCreatedHandler(IUserProfileRepository profiles, IMediator mediator)
-    {
-        _profiles = profiles;
-        _mediator = mediator;
-    }
-
     public async Task Handle(UserShouldBeCreatedIntegrationEvent notification, CancellationToken cancellationToken)
     {
-        await _profiles.InsertAsync(
-            notification.PublicId,
-            notification.TenantId,
-            notification.FullName,
-            cancellationToken);
+        await profiles.AddAsync(new UserProfile
+        {
+            PublicId = notification.PublicId,
+            TenantId = notification.TenantId,
+            FullName = notification.FullName,
+        }, cancellationToken);
 
-        await _mediator.Publish(new UserRegisteredIntegrationEvent(notification.PublicId), cancellationToken);
+        await mediator.Publish(new UserRegisteredIntegrationEvent(notification.PublicId), cancellationToken);
     }
 }

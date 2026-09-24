@@ -27,7 +27,8 @@ internal sealed class LoginHandler : IRequestHandler<LoginRequest, LoginResponse
 
     public async Task<LoginResponse> Handle(LoginRequest request, CancellationToken cancellationToken)
     {
-        var credential = await _credentials.GetForLoginAsync(request.Email, cancellationToken);
+        var email      = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+        var credential = await _credentials.GetForLoginAsync(email, cancellationToken);
 
         if (credential is null || !_hasher.Verify(request.Password, credential.PasswordHash) || !credential.IsActive)
             return new LoginInvalidCredentialsFailure("Credenciales inválidas.");
@@ -36,7 +37,7 @@ internal sealed class LoginHandler : IRequestHandler<LoginRequest, LoginResponse
         var refreshToken = _jwt.GenerateRefreshToken();
         var expiry       = _jwt.GetRefreshTokenExpiry();
 
-        await _refreshTokens.InsertAsync(credential.Id, refreshToken, expiry, cancellationToken);
+        await _refreshTokens.InsertAsync(credential.TenantId, credential.Id, refreshToken, expiry, cancellationToken);
 
         return new LoginSuccess(new TokenDto(accessToken, refreshToken, expiry));
     }

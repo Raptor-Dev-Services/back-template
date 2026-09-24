@@ -6,7 +6,6 @@
 
   <ItemGroup>
     <PackageReference Include="NSubstitute" />
-    <PackageReference Include="NetArchTest.Rules" />
   </ItemGroup>
 
   <ItemGroup>

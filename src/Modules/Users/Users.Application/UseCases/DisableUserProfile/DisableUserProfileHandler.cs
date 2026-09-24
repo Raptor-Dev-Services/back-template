@@ -4,17 +4,17 @@ using Users.Domain.Repositories;
 
 namespace Users.Application.UseCases.DisableUserProfile;
 
-internal sealed class DisableUserProfileHandler : IRequestHandler<DisableUserProfileRequest, DisableUserProfileResponse>
+internal sealed class DisableUserProfileHandler(IUserProfileRepository profiles)
+    : IRequestHandler<DisableUserProfileRequest, DisableUserProfileResponse>
 {
-    private readonly IUserProfileRepository _profiles;
-
-    public DisableUserProfileHandler(IUserProfileRepository profiles) => _profiles = profiles;
-
     public async Task<DisableUserProfileResponse> Handle(DisableUserProfileRequest request, CancellationToken cancellationToken)
     {
-        var disabled = await _profiles.DisableAsync(request.PublicId, request.TenantId, cancellationToken);
-        return disabled
-            ? new DisableUserProfileSuccess()
-            : new DisableUserProfileNotFoundFailure("Perfil de usuario no encontrado.");
+        var profile = await profiles.GetForUpdateAsync(request.PublicId, cancellationToken);
+        if (profile is null)
+            return new DisableUserProfileNotFoundFailure("Perfil de usuario no encontrado.");
+
+        profile.IsActive = false;
+        await profiles.SaveChangesAsync(cancellationToken);
+        return new DisableUserProfileSuccess();
     }
 }

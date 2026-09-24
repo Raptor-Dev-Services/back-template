@@ -9,6 +9,8 @@ using Common.Web;
 using Host.Api.Extensions;
 using Host.Api.Middleware;
 using Shared.Infrastructure;
+using Shared.Kernel.Context;
+using Shared.Web;
 using Tenancy.Application;
 using Tenancy.Infrastructure;
 using Tenancy.Presentation;
@@ -26,8 +28,17 @@ builder.Services.AddObservability(
 // Multi-tenancy
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
 
-// Database
-builder.Services.AddMainDatabase(builder.Configuration);
+// Usuario de la peticion (auditoria de SaveChanges y bitacora).
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+
+// Base de datos: un solo DbContext; cada modulo aporta sus tablas. Las migraciones NO corren al arrancar:
+// son un paso aparte, con el rol dueno del esquema (ver docs/adr y scripts/dev-db.sh).
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException(
+        "Falta ConnectionStrings:DefaultConnection. Copia .env.example a .env o define ConnectionStrings__DefaultConnection.");
+builder.Services.AddAppDatabase(connectionString);
 
 // Mediador de Common, SIN escaneo de ensamblados: cada modulo registra sus handlers.
 builder.Services.AddMediator();
@@ -45,7 +56,7 @@ builder.Services.AddAuthenticationInfrastructureServices(builder.Configuration);
 builder.Services.AddAuthenticationWebApiServices();
 
 // Un solo formato de error para toda la API (filtro global, modelo invalido, middleware, estado vacio).
-builder.Services.AddControllers().AddApiErrorHandling();
+builder.Services.AddApiControllers();
 
 builder.Services.AddHealthServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);

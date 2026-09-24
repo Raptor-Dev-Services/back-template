@@ -22,14 +22,14 @@ public sealed class UsersController(IMediator mediator, ResultViewModel<UsersCon
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
-        var response = await DispatchAsync(new GetUserProfilesRequest(CurrentTenantId, page, pageSize), cancellationToken);
+        var response = await DispatchAsync(new GetUserProfilesRequest(page, pageSize), cancellationToken);
         return MapResult(response, viewModel);
     }
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken = default)
     {
-        var response = await DispatchAsync(new GetUserProfileRequest(id, CurrentTenantId), cancellationToken);
+        var response = await DispatchAsync(new GetUserProfileRequest(id), cancellationToken);
         return MapResult(response, viewModel);
     }
 
@@ -37,7 +37,7 @@ public sealed class UsersController(IMediator mediator, ResultViewModel<UsersCon
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserProfileBody body, CancellationToken cancellationToken = default)
     {
-        var response = await DispatchAsync(new UpdateUserProfileRequest(id, CurrentTenantId, body.FullName), cancellationToken);
+        var response = await DispatchAsync(new UpdateUserProfileRequest(id, body.FullName), cancellationToken);
         return MapResult(response, viewModel);
     }
 
@@ -45,7 +45,7 @@ public sealed class UsersController(IMediator mediator, ResultViewModel<UsersCon
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Disable(Guid id, CancellationToken cancellationToken = default)
     {
-        var response = await DispatchAsync(new DisableUserProfileRequest(id, CurrentTenantId), cancellationToken);
+        var response = await DispatchAsync(new DisableUserProfileRequest(id), cancellationToken);
         return MapResult(response, viewModel);
     }
 }

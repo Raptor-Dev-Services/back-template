@@ -1,14 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Infraestructura compartida: el DbContext unico, sus migraciones y (mas adelante) las piezas
+    transversales que necesitan un SDK. NO referencia a ningun modulo: cada modulo le publica sus
+    configuraciones de EF (ModuleModel).
+  -->
   <ItemGroup>
     <ProjectReference Include="$(CommonRoot)Common.MultiTenancy/Common.MultiTenancy.csproj" />
-    <ProjectReference Include="../../Modules/Tenancy/Tenancy.Domain/Tenancy.Domain.csproj" />
-    <ProjectReference Include="../../Modules/Users/Users.Domain/Users.Domain.csproj" />
-    <ProjectReference Include="../Authentication/Authentication.Domain/Authentication.Domain.csproj" />
+    <ProjectReference Include="../Shared.Kernel/Shared.Kernel.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
 
 </Project>
