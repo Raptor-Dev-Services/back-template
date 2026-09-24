@@ -2,9 +2,11 @@
 
 Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semantico por tag (`vX.Y.Z`).
 
-## [Sin publicar] - chasis generico
+## [Sin publicar]
 
-Todavia sin tag. Reescritura de la plantilla como chasis de SaaS multi-tenant. **Rompe** con los tags
+## [monolito-modular-v2.0.0] - 2026-09-24
+
+Reescritura de la plantilla como chasis de SaaS multi-tenant. **Rompe** con los tags
 anteriores (`monolito-modular-v1.0.0`, `clean-arch-dapper-single-tenant-v1.0.0`): rutas, esquema y contrato
 de autenticacion cambian.
 

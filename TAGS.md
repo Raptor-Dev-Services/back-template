@@ -5,20 +5,33 @@ Cada tag es un template completo y funcional — elige el que corresponda al tip
 
 ---
 
-## `main` - chasis generico (sin tag todavia)
+## `monolito-modular-v2.0.0` - chasis generico de SaaS multi-tenant (2026-09-24)
 
-La punta de `main` ya **no** corresponde a ninguno de los tags de abajo: es la reescritura como chasis de SaaS
-multi-tenant (ver README y CHANGELOG). Cambia rutas (`/api/v1/...`), esquema (migraciones EF, RLS) y el contrato
-de autenticacion (bootstrap + invitaciones en vez de `/register`, permisos en vez de roles).
+**Commit:** el que marca el tag (`git rev-list -n 1 monolito-modular-v2.0.0`).
+
+Reescritura como chasis de SaaS multi-tenant, portado del de un producto en produccion sin su logica de negocio
+(ver README y CHANGELOG). **Rompe** con los tags `v1.0.0` de abajo: cambian rutas (`/api/v1/...`), esquema
+(migraciones EF, RLS) y el contrato de autenticacion (bootstrap + invitaciones en vez de `/register`, permisos
+en vez de roles). Su companero de front es `front-template` `v0.2.0`, que habla este mismo contrato.
 
 - **Estructura:** `src/Host`, `src/Shared/{Shared.Kernel, Shared.Infrastructure, Shared.Web, Authentication/*}`,
-  `src/Modules/{Tenancy, Users}`, `tests/` (5 proyectos).
-- **Stack:** .NET 10, EF Core 10 + Npgsql, PostgreSQL 17 con RLS, Common v2 (submodulo `aedf830`), MinIO/S3,
-  Serilog + Seq, imagen chiseled.
+  `src/Modules/{Tenancy, Users}`, `tests/` (6 proyectos).
+- **Stack:** .NET 10, EF Core 10 + Npgsql, PostgreSQL 17 con RLS, Common v2.1.3 (submodulo `dace97a`),
+  MinIO/S3, Serilog + Seq, imagen chiseled.
+- **Incluye:** errores tipados con un solo envelope (validacion 400), auditoria y soft delete por convencion,
+  UTC, RLS con guarda de rol, bootstrap con secreto, RBAC por permisos, refresh hasheado con deteccion de reuso,
+  2FA TOTP, rate limit, tareas programadas (purga de sesiones y de objetos huerfanos), archivos con propiedad por
+  tenant, CI/CD por tag con rollback y acciones fijadas por SHA.
+- **Verificado:** 195 pruebas (88 de integracion con Postgres real) y corrida en vivo contra el devstack.
 - **Cuando usarlo:** cualquier SaaS multi-tenant nuevo del ecosistema.
-- **Clonar:** `git clone --recurse-submodules https://github.com/Raptor-Dev-Services/back-template.git`
+- **Clonar:**
 
-Cuando una persona decida el primer tag de esta linea, esta seccion se reemplaza por la del tag.
+```bash
+git clone --recurse-submodules --branch monolito-modular-v2.0.0 https://github.com/Raptor-Dev-Services/back-template.git
+```
+
+> El nombre no empieza con `v` a proposito: `deploy.yml` se dispara con tags `v*`, que son los de los PRODUCTOS
+> que nacen de la plantilla. Un tag de la plantilla no debe desplegar nada.
 
 ---
 
