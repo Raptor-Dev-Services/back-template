@@ -9,7 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="../../../Common/Common/Common.csproj" />
     <ProjectReference Include="../Authentication.Domain/Authentication.Domain.csproj" />
-    <ProjectReference Include="../Authentication.Application/Authentication.Application.csproj" />
     <ProjectReference Include="../../../Shared/Database/Shared.Database.csproj" />
   </ItemGroup>
 

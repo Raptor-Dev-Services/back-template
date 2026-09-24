@@ -1,4 +1,4 @@
-using Authentication.Application.Services;
+using Authentication.Domain.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;

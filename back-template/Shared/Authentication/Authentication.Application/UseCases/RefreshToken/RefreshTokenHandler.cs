@@ -1,5 +1,5 @@
 using Authentication.Application.Dto;
-using Authentication.Application.Services;
+using Authentication.Domain.Abstractions;
 using Authentication.Application.UseCases.RefreshToken.Responses;
 using Authentication.Domain.Repositories;
 using Common.Messaging;

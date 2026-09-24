@@ -1,5 +1,5 @@
 using Authentication.Application.Dto;
-using Authentication.Application.Services;
+using Authentication.Domain.Abstractions;
 using Authentication.Application.UseCases.Register.Responses;
 using Authentication.Contracts.Events;
 using Authentication.Domain.Repositories;

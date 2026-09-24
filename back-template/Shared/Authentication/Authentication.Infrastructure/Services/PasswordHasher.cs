@@ -1,4 +1,4 @@
-using Authentication.Application.Services;
+using Authentication.Domain.Abstractions;
 
 namespace Authentication.Infrastructure.Services;
 

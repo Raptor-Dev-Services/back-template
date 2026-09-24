@@ -1,4 +1,4 @@
-using Authentication.Application.Services;
+using Authentication.Domain.Abstractions;
 using Authentication.Domain.Repositories;
 using Authentication.Infrastructure.Repositories;
 using Authentication.Infrastructure.Services;

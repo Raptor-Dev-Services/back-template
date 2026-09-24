@@ -1,4 +1,4 @@
-using Authentication.Application.Services;
+using Authentication.Domain.Abstractions;
 using Authentication.Application.UseCases.Login;
 using Authentication.Application.UseCases.Login.Responses;
 using Authentication.Domain.Entities;
