@@ -17,6 +17,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Carga el .env del repo SOLO en Development (ver ConfigurationExtensions). -->
+    <PackageReference Include="DotNetEnv" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

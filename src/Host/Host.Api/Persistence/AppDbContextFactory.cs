@@ -30,6 +30,10 @@ public sealed class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
 
     public AppDbContext CreateDbContext(string[] args)
     {
+        // Solo lo usa el tooling de `dotnet ef`, nunca la API: cargar el .env aqui no depende del entorno. NoClobber
+        // respeta una variable ya fijada en el shell (asi, prefijarla inline sigue mandando).
+        try { DotNetEnv.Env.TraversePath().NoClobber().Load(); } catch (FileNotFoundException) { /* sin .env */ }
+
         var connectionString =
             Environment.GetEnvironmentVariable("ConnectionStrings__Migrations")
             ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")

@@ -18,7 +18,20 @@ using Users.Application;
 using Users.Infrastructure;
 using Users.Presentation;
 
+// PRIMERO: el .env de desarrollo tiene que estar en el entorno antes de que el builder lea la configuracion.
+AppConfigurationExtensions.LoadDotEnvInDevelopment();
+
 var builder = WebApplication.CreateBuilder(args);
+
+// El contenedor se valida en TODOS los entornos (el default solo lo hace en Development): un registro que falta o
+// un Scoped capturado por un Singleton se detecta al arrancar, no con el primer usuario que toca ese endpoint.
+builder.Host.UseDefaultServiceProvider(options =>
+{
+    options.ValidateScopes = true;
+    options.ValidateOnBuild = true;
+});
+
+builder.Configuration.EnsureProductionSettings(builder.Environment);
 
 builder.Services.AddLoggingServices(builder.Configuration);
 builder.Services.AddObservability(
