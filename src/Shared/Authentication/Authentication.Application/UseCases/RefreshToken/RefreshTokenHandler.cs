@@ -6,7 +6,7 @@ using Common.Messaging;
 
 namespace Authentication.Application.UseCases.RefreshToken;
 
-public sealed class RefreshTokenHandler : IRequestHandler<RefreshTokenRequest, RefreshTokenResponse>
+internal sealed class RefreshTokenHandler : IRequestHandler<RefreshTokenRequest, RefreshTokenResponse>
 {
     private readonly IRefreshTokenRepository   _refreshTokens;
     private readonly IUserCredentialRepository _credentials;

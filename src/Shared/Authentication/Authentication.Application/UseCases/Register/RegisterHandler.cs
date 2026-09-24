@@ -8,7 +8,7 @@ using Tenancy.Contracts.Interfaces;
 
 namespace Authentication.Application.UseCases.Register;
 
-public sealed class RegisterHandler : IRequestHandler<RegisterRequest, RegisterResponse>
+internal sealed class RegisterHandler : IRequestHandler<RegisterRequest, RegisterResponse>
 {
     private readonly IUserCredentialRepository _credentials;
     private readonly IRefreshTokenRepository   _refreshTokens;

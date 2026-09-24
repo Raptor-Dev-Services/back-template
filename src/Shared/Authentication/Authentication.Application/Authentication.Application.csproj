@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="$(CommonRoot)Common.Contracts/Common.Contracts.csproj" />
     <ProjectReference Include="$(CommonRoot)Common.Messaging/Common.Messaging.csproj" />
+    <ProjectReference Include="../../Shared.Kernel/Shared.Kernel.csproj" />
     <ProjectReference Include="../Authentication.Domain/Authentication.Domain.csproj" />
     <ProjectReference Include="../Authentication.Contracts/Authentication.Contracts.csproj" />
     <ProjectReference Include="../../../Modules/Tenancy/Tenancy.Contracts/Tenancy.Contracts.csproj" />
@@ -11,6 +12,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Los handlers son internal (regla backend-architecture); las pruebas los instancian directo. -->
+    <InternalsVisibleTo Include="Authentication.Tests" />
   </ItemGroup>
 
 </Project>

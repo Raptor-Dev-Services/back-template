@@ -5,7 +5,7 @@ using Users.Domain.Repositories;
 
 namespace Users.Application.UseCases.GetUserProfile;
 
-public sealed class GetUserProfileHandler : IRequestHandler<GetUserProfileRequest, GetUserProfileResponse>
+internal sealed class GetUserProfileHandler : IRequestHandler<GetUserProfileRequest, GetUserProfileResponse>
 {
     private readonly IUserProfileRepository _profiles;
 

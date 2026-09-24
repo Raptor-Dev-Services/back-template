@@ -4,7 +4,7 @@ using Users.Domain.Repositories;
 
 namespace Users.Application.UseCases.DisableUserProfile;
 
-public sealed class DisableUserProfileHandler : IRequestHandler<DisableUserProfileRequest, DisableUserProfileResponse>
+internal sealed class DisableUserProfileHandler : IRequestHandler<DisableUserProfileRequest, DisableUserProfileResponse>
 {
     private readonly IUserProfileRepository _profiles;
 

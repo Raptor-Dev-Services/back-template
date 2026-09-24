@@ -5,7 +5,7 @@ using Users.Domain.Repositories;
 
 namespace Users.Application.IntegrationEventHandlers;
 
-public sealed class UserShouldBeCreatedHandler : INotificationHandler<UserShouldBeCreatedIntegrationEvent>
+internal sealed class UserShouldBeCreatedHandler : INotificationHandler<UserShouldBeCreatedIntegrationEvent>
 {
     private readonly IUserProfileRepository _profiles;
     private readonly IMediator              _mediator;

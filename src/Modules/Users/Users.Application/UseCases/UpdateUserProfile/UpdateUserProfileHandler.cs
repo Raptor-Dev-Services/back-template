@@ -4,7 +4,7 @@ using Users.Domain.Repositories;
 
 namespace Users.Application.UseCases.UpdateUserProfile;
 
-public sealed class UpdateUserProfileHandler : IRequestHandler<UpdateUserProfileRequest, UpdateUserProfileResponse>
+internal sealed class UpdateUserProfileHandler : IRequestHandler<UpdateUserProfileRequest, UpdateUserProfileResponse>
 {
     private readonly IUserProfileRepository _profiles;
 

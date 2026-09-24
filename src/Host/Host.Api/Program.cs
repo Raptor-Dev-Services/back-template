@@ -26,35 +26,28 @@ builder.Services.AddObservability(
 // Multi-tenancy
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
 
-// Database — EF Core + schema initialization
+// Database
 builder.Services.AddMainDatabase(builder.Configuration);
 
-// Mediator — single call with all Application assemblies
-builder.Services.AddMediator(
-    typeof(Tenancy.Application.ServiceCollectionEx).Assembly,
-    typeof(Users.Application.ServiceCollectionEx).Assembly,
-    typeof(Authentication.Application.ServiceCollectionEx).Assembly
-);
+// Mediador de Common, SIN escaneo de ensamblados: cada modulo registra sus handlers.
+builder.Services.AddMediator();
 
-// Tenancy module
 builder.Services.AddTenancyApplicationServices();
 builder.Services.AddTenancyInfrastructureServices();
 builder.Services.AddTenancyWebApiServices();
 
-// Users module
 builder.Services.AddUsersApplicationServices();
 builder.Services.AddUsersInfrastructureServices();
 builder.Services.AddUsersWebApiServices();
 
-// Authentication shared
 builder.Services.AddAuthenticationApplicationServices();
 builder.Services.AddAuthenticationInfrastructureServices(builder.Configuration);
 builder.Services.AddAuthenticationWebApiServices();
 
-// Infrastructure
-builder.Services.AddHealthServices(builder.Configuration);
+// Un solo formato de error para toda la API (filtro global, modelo invalido, middleware, estado vacio).
+builder.Services.AddControllers().AddApiErrorHandling();
 
-// Auth & API
+builder.Services.AddHealthServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddLocalhostCors();
 builder.Services.AddEndpointsApiExplorer();
@@ -62,15 +55,14 @@ builder.Services.AddSwaggerWithJwt();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment()                  ||
-    app.Environment.IsEnvironment("Local")            ||
-    app.Environment.IsEnvironment("Staging"))
+app.UseApiErrorHandling();
+
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Local") || app.Environment.IsEnvironment("Staging"))
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseCoreProblemDetails();
 app.UseCorrelationId();
 
 app.UseCors(CorsExtensions.PolicyName);
@@ -82,3 +74,6 @@ app.MapControllers();
 app.MapHealth();
 
 app.Run();
+
+/// <summary>Expuesto para <c>WebApplicationFactory&lt;Program&gt;</c> en las pruebas de integracion.</summary>
+public partial class Program;

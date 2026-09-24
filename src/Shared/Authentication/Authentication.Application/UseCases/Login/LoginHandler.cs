@@ -6,7 +6,7 @@ using Common.Messaging;
 
 namespace Authentication.Application.UseCases.Login;
 
-public sealed class LoginHandler : IRequestHandler<LoginRequest, LoginResponse>
+internal sealed class LoginHandler : IRequestHandler<LoginRequest, LoginResponse>
 {
     private readonly IUserCredentialRepository _credentials;
     private readonly IRefreshTokenRepository   _refreshTokens;

@@ -11,6 +11,7 @@
     <Project Path="src/Host/Host.Api/Host.Api.csproj" />
   </Folder>
   <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/Shared.Kernel/Shared.Kernel.csproj" />
     <Project Path="src/Shared/Shared.Infrastructure/Shared.Infrastructure.csproj" />
     <Project Path="src/Shared/Shared.Web/Shared.Web.csproj" />
   </Folder>
@@ -38,6 +39,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Authentication.Tests/Authentication.Tests.csproj" />
+    <Project Path="tests/Shared.Tests/Shared.Tests.csproj" />
     <Project Path="tests/Tenancy.Tests/Tenancy.Tests.csproj" />
     <Project Path="tests/Users.Tests/Users.Tests.csproj" />
   </Folder>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Nucleo compartido PURO: tipos que cualquier capa de cualquier modulo puede usar sin arrastrar
+    infraestructura (entidades base, excepciones de negocio, contratos transversales). Sin paquetes
+    NuGet a proposito: si algo de aqui necesita EF Core, ASP.NET o un SDK, no es nucleo y va en
+    Shared.Infrastructure o Shared.Web.
+
+    Solo depende de Common.Contracts, que es igual de puro (resultados e interfaces de mensajeria).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(CommonRoot)Common.Contracts/Common.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
