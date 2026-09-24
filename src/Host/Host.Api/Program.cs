@@ -8,6 +8,7 @@ using Common.Observability;
 using Common.Web;
 using Host.Api.Extensions;
 using Shared.Infrastructure;
+using Shared.Infrastructure.Email;
 using Shared.Kernel.Context;
 using Shared.Web;
 using Shared.Web.Tenancy;
@@ -39,6 +40,9 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException(
         "Falta ConnectionStrings:DefaultConnection. Copia .env.example a .env o define ConnectionStrings__DefaultConnection.");
 builder.Services.AddAppDatabase(connectionString);
+
+// Correo saliente (SMTP real si hay Smtp:Host; en desarrollo sin SMTP, al log; fuera de desarrollo, falla fuerte).
+builder.Services.AddAppEmail(builder.Configuration);
 
 // Mediador de Common, SIN escaneo de ensamblados: cada modulo registra sus handlers.
 builder.Services.AddMediator();
