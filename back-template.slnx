@@ -43,6 +43,7 @@
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/Authentication.Tests/Authentication.Tests.csproj" />
     <Project Path="tests/Shared.Tests/Shared.Tests.csproj" />
+    <Project Path="tests/Tenancy.Tests/Tenancy.Tests.csproj" />
     <Project Path="tests/Users.Tests/Users.Tests.csproj" />
   </Folder>
 </Solution>
