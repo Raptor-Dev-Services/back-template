@@ -30,6 +30,12 @@ de autenticacion cambian.
 - CI (build 0/0, pruebas con Postgres real, imagen, gitleaks), deploy por tag, rollback, puerta de dependencias.
   Acciones fijadas por SHA y Dependabot para mantenerlas.
 - Un fallo de validacion responde 400, igual que una peticion malformada (ADR-0007).
+- `GET /api/v1/account/me` incluye `twoFactorEnabled`.
+
+### Seguridad
+- Los codigos TOTP y los de recuperacion ya no se registran en claro en el log (el pipeline de Common tapa por
+  nombre y `Code`/`Codes` no estaban en su lista). Una prueba de arquitectura revisa todos los requests y
+  respuestas.
 
 ### Quitado
 - `POST /api/auth/register` anonimo, `EnsureCreated`, Prometheus `/metrics`, `/api/health`, los compose que

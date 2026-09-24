@@ -5,6 +5,9 @@ Scrumban. Una tarjeta por linea; se mueve de columna, no se borra (lo hecho pasa
 ## Listo (para tomar)
 
 - **Registro del release** (skill release-announcements) en `deploy.yml`, si el producto lo necesita.
+- **Proponer a Common que el enmascarado del log no dependa solo del nombre** (hoy lista negra: un secreto con
+  un nombre nuevo sale en claro). Aqui lo contiene `RequestLoggingSecretsTests`; en Common protegeria a todos
+  los productos. Se decide en el repo de Common, no desde la plantilla.
 
 ## En curso
 
@@ -24,6 +27,8 @@ Scrumban. Una tarjeta por linea; se mueve de columna, no se borra (lo hecho pasa
   margen de gracia y en seco por omision.
 - 2026-09-24 Acciones de GitHub fijadas por SHA, con Dependabot para mantenerlas al dia.
 - 2026-09-24 `UsersController` en `Users.Presentation.Controllers`, como el resto.
+- 2026-09-24 Codigos TOTP y de recuperacion fuera del log (`OtpCode`, `OtpRecoveryCodes`) y prueba que lo vigila.
+- 2026-09-24 `/account/me` con `twoFactorEnabled`, para la pantalla de cuenta del front-template.
 - 2026-09-24 Filas del template en el devstack (`PUERTOS.md` e init de Postgres y MinIO), en el catalogo.
 
 - Chasis generico completo (ver CHANGELOG, commits `38c0965` .. `HEAD`), verificado con 171 pruebas y corrida en
