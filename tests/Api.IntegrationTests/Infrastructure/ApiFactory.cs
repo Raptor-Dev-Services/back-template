@@ -32,6 +32,8 @@ public sealed class ApiFactory(PostgresFixture pg, IDictionary<string, string?>?
         builder.UseSetting("Bootstrap:Secret", BootstrapSecret);
         builder.UseSetting("Totp:EncryptionKey", "integration-tests-totp-encryption-key-0123456789");
         builder.UseSetting("Web:BaseUrl", "https://app.example.test");
+        // El despachador en segundo plano competiria con las pruebas por las mismas filas: se ejercita con "ejecutar ahora".
+        builder.UseSetting("BackgroundJobs:DispatcherEnabled", "false");
 
         foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())
             builder.UseSetting(key, value);

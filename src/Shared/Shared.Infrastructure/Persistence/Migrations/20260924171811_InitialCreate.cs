@@ -45,6 +45,49 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AutomatedTaskDefinition",
+                schema: "public",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Code = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    IntervalMinutes = table.Column<int>(type: "integer", nullable: false),
+                    LastRunAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    NextRunAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    LastCutoffUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ClaimedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AutomatedTaskDefinition", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AutomatedTaskRun",
+                schema: "public",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    TaskCode = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    StartedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    FinishedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    ItemsProcessed = table.Column<int>(type: "integer", nullable: false),
+                    ItemsFailed = table.Column<int>(type: "integer", nullable: false),
+                    Message = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
+                    WindowFromUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    WindowToUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    TriggeredByUserId = table.Column<Guid>(type: "uuid", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AutomatedTaskRun", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Permission",
                 schema: "public",
                 columns: table => new
@@ -360,6 +403,25 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 columns: new[] { "TenantId", "OccurredAtUtc" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_AutomatedTaskDefinition_IsEnabled_NextRunAtUtc",
+                schema: "public",
+                table: "AutomatedTaskDefinition",
+                columns: new[] { "IsEnabled", "NextRunAtUtc" });
+
+            migrationBuilder.CreateIndex(
+                name: "UX_AutomatedTaskDefinition_Code",
+                schema: "public",
+                table: "AutomatedTaskDefinition",
+                column: "Code",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AutomatedTaskRun_TaskCode_StartedAtUtc",
+                schema: "public",
+                table: "AutomatedTaskRun",
+                columns: new[] { "TaskCode", "StartedAtUtc" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PasswordSetupToken_CredentialId_ConsumedAtUtc",
                 schema: "public",
                 table: "PasswordSetupToken",
@@ -541,6 +603,14 @@ namespace Shared.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropTable(
                 name: "AuditLog",
+                schema: "public");
+
+            migrationBuilder.DropTable(
+                name: "AutomatedTaskDefinition",
+                schema: "public");
+
+            migrationBuilder.DropTable(
+                name: "AutomatedTaskRun",
                 schema: "public");
 
             migrationBuilder.DropTable(

@@ -1,12 +1,15 @@
 using Authentication.Application;
 using Authentication.Infrastructure;
+using Authentication.Infrastructure.BackgroundJobs;
 using Authentication.Presentation;
 using Common.Messaging;
 using Common.MultiTenancy;
 using Common.Observability;
 using Host.Api.Extensions;
 using Shared.Infrastructure;
+using Shared.Infrastructure.BackgroundJobs;
 using Shared.Infrastructure.Email;
+using Shared.Kernel.BackgroundJobs;
 using Shared.Kernel.Context;
 using Shared.Web;
 using Shared.Web.Tenancy;
@@ -56,6 +59,12 @@ builder.Services.AddAppDatabase(connectionString);
 
 // --- Servicios transversales ------------------------------------------------------------------
 builder.Services.AddAppEmail(builder.Configuration);
+
+// Tareas programadas: un despachador unico; cada modulo registra las suyas como IAutomatedTask.
+builder.Services.AddBackgroundJobs(
+    builder.Configuration.GetSection(BackgroundJobsOptions.SectionName).Get<BackgroundJobsOptions>() ?? new BackgroundJobsOptions());
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection(SessionPurgeOptions.SectionName).Get<SessionPurgeOptions>() ?? new SessionPurgeOptions());
 
 // Mediador de Common, SIN escaneo de ensamblados: cada modulo registra sus handlers.
 builder.Services.AddMediator();

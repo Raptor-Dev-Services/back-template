@@ -1,10 +1,12 @@
 using Authentication.Domain.Abstractions;
 using Authentication.Domain.Repositories;
+using Authentication.Infrastructure.BackgroundJobs;
 using Authentication.Infrastructure.Persistence;
 using Authentication.Infrastructure.Repositories;
 using Authentication.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Infrastructure.Persistence;
+using Shared.Kernel.BackgroundJobs;
 
 namespace Authentication.Infrastructure;
 
@@ -32,6 +34,9 @@ public static class ServiceCollectionEx
         services.AddSingleton<ISecretProtector, AesSecretProtector>();
         services.AddSingleton<IRecoveryCodes, RecoveryCodes>();
         services.AddSingleton<ITwoFactorChallenges, TwoFactorChallenges>();
+
+        // Tarea programada de ejemplo (SessionPurgeOptions lo registra el Host desde BackgroundJobs:SessionPurge).
+        services.AddScoped<IAutomatedTask, ExpiredSessionPurgeTask>();
 
         services.AddHostedService<RbacCatalogSyncService>();
         return services;

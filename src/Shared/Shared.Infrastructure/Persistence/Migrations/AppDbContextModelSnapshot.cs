@@ -615,6 +615,100 @@ namespace Shared.Infrastructure.Persistence.Migrations
                     b.ToTable("AuditLog", "public");
                 });
 
+            modelBuilder.Entity("Shared.Infrastructure.BackgroundJobs.AutomatedTaskDefinition", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("ClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("IntervalMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastCutoffUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastRunAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("NextRunAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AutomatedTaskDefinition_Code");
+
+                    b.HasIndex("IsEnabled", "NextRunAtUtc")
+                        .HasDatabaseName("IX_AutomatedTaskDefinition_IsEnabled_NextRunAtUtc");
+
+                    b.ToTable("AutomatedTaskDefinition", "public");
+                });
+
+            modelBuilder.Entity("Shared.Infrastructure.BackgroundJobs.AutomatedTaskRun", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ItemsFailed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ItemsProcessed")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("TaskCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("TriggeredByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("WindowFromUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("WindowToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskCode", "StartedAtUtc")
+                        .HasDatabaseName("IX_AutomatedTaskRun_TaskCode_StartedAtUtc");
+
+                    b.ToTable("AutomatedTaskRun", "public");
+                });
+
             modelBuilder.Entity("Tenancy.Domain.Entities.Tenant", b =>
                 {
                     b.Property<long>("Id")

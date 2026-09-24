@@ -1,6 +1,14 @@
 using Common.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Tenancy.Application.Api;
+using Tenancy.Application.UseCases.AutomatedTasks.GetAutomatedTaskHistory;
+using Tenancy.Application.UseCases.AutomatedTasks.GetAutomatedTaskHistory.Responses;
+using Tenancy.Application.UseCases.AutomatedTasks.ListAutomatedTasks;
+using Tenancy.Application.UseCases.AutomatedTasks.ListAutomatedTasks.Responses;
+using Tenancy.Application.UseCases.AutomatedTasks.RunAutomatedTaskNow;
+using Tenancy.Application.UseCases.AutomatedTasks.RunAutomatedTaskNow.Responses;
+using Tenancy.Application.UseCases.AutomatedTasks.SetAutomatedTaskEnabled;
+using Tenancy.Application.UseCases.AutomatedTasks.SetAutomatedTaskEnabled.Responses;
 using Tenancy.Application.UseCases.GetAuditLog;
 using Tenancy.Application.UseCases.GetAuditLog.Responses;
 using Tenancy.Contracts.Interfaces;
@@ -13,6 +21,12 @@ public static class ServiceCollectionEx
     {
         services.AddScoped<ITenancyApi, TenancyApi>();
         services.AddScoped<IRequestHandler<GetAuditLogRequest, GetAuditLogResponse>, GetAuditLogHandler>();
+
+        // Operacion de tareas programadas (el despachador y sus puertos los registra AddBackgroundJobs).
+        services.AddScoped<IRequestHandler<ListAutomatedTasksRequest, ListAutomatedTasksResponse>, ListAutomatedTasksHandler>();
+        services.AddScoped<IRequestHandler<SetAutomatedTaskEnabledRequest, SetAutomatedTaskEnabledResponse>, SetAutomatedTaskEnabledHandler>();
+        services.AddScoped<IRequestHandler<RunAutomatedTaskNowRequest, RunAutomatedTaskNowResponse>, RunAutomatedTaskNowHandler>();
+        services.AddScoped<IRequestHandler<GetAutomatedTaskHistoryRequest, GetAutomatedTaskHistoryResponse>, GetAutomatedTaskHistoryHandler>();
         return services;
     }
 }
