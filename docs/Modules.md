@@ -35,7 +35,6 @@ normal de cinco proyectos.
 | Evento | Lo publica | Lo consume |
 |---|---|---|
 | `UserShouldBeCreatedIntegrationEvent` (Authentication.Contracts) | bootstrap e invitacion | `Users.Application/IntegrationEventHandlers/UserShouldBeCreatedHandler` crea el perfil |
-| `UserRegisteredIntegrationEvent` (Users.Contracts) | `UserShouldBeCreatedHandler` | nadie por ahora (punto de extension) |
 | `UserDisabledIntegrationEvent` (Users.Contracts) | `DisableUserProfileHandler` | `Authentication.Application/IntegrationEventHandlers/UserDisabledHandler` apaga la credencial y revoca sesiones |
 
 Los eventos se publican por el mediador **dentro** de la transaccion del caso de uso: o pasa todo o nada.

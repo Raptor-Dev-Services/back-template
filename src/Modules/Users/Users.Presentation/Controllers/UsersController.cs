@@ -12,7 +12,7 @@ using Users.Application.UseCases.GetUserProfiles;
 using Users.Application.UseCases.UpdateUserProfile;
 using Users.Presentation.RequestBodies;
 
-namespace Users.Presentation;
+namespace Users.Presentation.Controllers;
 
 /// <summary>
 /// Perfiles de los usuarios del tenant del token. Cada accion declara su permiso: la prueba de superficie de

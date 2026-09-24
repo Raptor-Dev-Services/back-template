@@ -6,6 +6,7 @@ using Users.Application.UseCases.GetUserProfile.Responses;
 using Users.Application.UseCases.GetUserProfiles.Responses;
 using Users.Application.UseCases.UpdateUserProfile.Responses;
 using Users.Contracts.Dtos;
+using Users.Presentation.Controllers;
 
 namespace Users.Presentation.Presenters;
 
