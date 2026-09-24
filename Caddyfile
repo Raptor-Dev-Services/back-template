@@ -1,0 +1,59 @@
+# Caddy: reverse proxy + TLS automatico (Let's Encrypt) delante de la API. El dominio llega por env
+# (API_DOMAIN). Caddy saca y renueva el certificado y redirige HTTP -> HTTPS. La API escucha en 8080.
+#
+# Requisito: el registro A de API_DOMAIN apunta a la IP del servidor y, si hay un CDN delante, en modo
+# solo-DNS; si no, el reto de Let's Encrypt no llega a Caddy.
+{
+	# La API de administracion de Caddy (2019) seria alcanzable desde cualquier contenedor de la red interna:
+	# quien comprometiera la API podria reconfigurar el proxy. La config solo cambia recreando el contenedor.
+	admin off
+
+	servers {
+		timeouts {
+			# Slowloris: una conexion que manda las cabeceras a cuentagotas ocupa un slot para siempre.
+			read_header 10s
+		}
+	}
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	# Tope de cuerpo en el borde. La subida legitima mas grande es un archivo de 5 MB (AllowedFileTypes);
+	# 8 MB deja aire para el sobre multipart y corta cualquier cosa mayor antes de que gaste memoria de la API.
+	request_body {
+		max_size 8MB
+	}
+
+	# Cabeceras de seguridad tambien en el borde: la API las pone (SecurityHeadersMiddleware), pero un 502 o
+	# un 413 del propio Caddy saldrian sin ninguna. `header` REEMPLAZA, asi que no se duplican.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		X-Permitted-Cross-Domain-Policies "none"
+		-Server
+	}
+
+	# Log de acceso a stdout (lo rota el driver json-file del compose). Sin credenciales: Caddy ya redacta
+	# Authorization y Cookie, y se borran igual para no depender de ese default.
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+
+	reverse_proxy api:8080 {
+		transport http {
+			dial_timeout 5s
+			# Red de seguridad contra un upstream colgado, no un SLA.
+			response_header_timeout 120s
+		}
+	}
+}

@@ -9,6 +9,7 @@
   <Folder Name="/src/" />
   <Folder Name="/src/Host/">
     <Project Path="src/Host/Host.Api/Host.Api.csproj" />
+    <Project Path="src/Host/HealthProbe/HealthProbe.csproj" />
   </Folder>
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/Shared.Kernel/Shared.Kernel.csproj" />

@@ -1,0 +1,95 @@
+# Stack de PRODUCCION en el servidor: la API se JALA de GHCR (nunca se compila aqui). Postgres y el
+# almacenamiento de objetos son externos (gestionados), por eso no estan aqui: el servidor corre API + Caddy.
+#
+# SIN .env en el servidor. La config NO secreta sale de variables con default seguro `${VAR:-default}`; los
+# SECRETOS los inyecta el pipeline (GitHub Secrets -> env del job -> SSH -> interpolacion de compose). Un
+# secreto faltante aborta el `up` con `${VAR:?}`: no arranca a medias. Inventario: docs/deploy/github-secrets.md.
+#
+# NOMBRES FIJOS de contenedor. Sin ellos, diagnosticar exige `docker compose -f este-archivo ...`, que vuelve a
+# interpolar los `${VAR:?}` y aborta pidiendo secretos que solo viven en GitHub, justo en mitad de una caida.
+# Con nombre fijo, `docker logs back-template-api` no necesita ninguna variable. Ver docs/deploy/runbook.md.
+#
+# Un reinicio a mano es `docker restart back-template-api` (conserva el env horneado), NUNCA un `docker compose
+# up` fuera del pipeline. Cambiar config o un secreto = actualizar GitHub + re-desplegar.
+
+services:
+  api:
+    # El deploy fija IMAGE_NAME e IMAGE_TAG (tag exacto vX.Y.Z / vX.Y.Z-beta-NN). Sin ellos no hay imagen que
+    # correr: `:?` en vez de un `latest` silencioso, que en un rollback pondria la version MAS NUEVA.
+    image: ${IMAGE_NAME:?falta IMAGE_NAME}:${IMAGE_TAG:?falta IMAGE_TAG}
+    container_name: back-template-api
+    restart: unless-stopped
+    environment:
+      # --- Config NO secreta: GitHub VARIABLE del mismo nombre para cambiarla; si no existe, el default ---
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      Jwt__Issuer: "${Jwt__Issuer:-back-template}"
+      Jwt__Audience: "${Jwt__Audience:-back-template-clients}"
+      Jwt__AccessTokenMinutes: "${Jwt__AccessTokenMinutes:-15}"
+      Jwt__RefreshTokenDays: "${Jwt__RefreshTokenDays:-14}"
+      Totp__Issuer: "${Totp__Issuer:-back-template}"
+      Cors__AllowedOrigins: "${Cors__AllowedOrigins:?falta Cors__AllowedOrigins}"
+      Web__BaseUrl: "${Web__BaseUrl:?falta Web__BaseUrl}"
+      # Caddy esta delante en la red interna: se confia en su X-Forwarded-For y solo en el suyo.
+      ForwardedHeaders__Enabled: "true"
+      ForwardedHeaders__KnownNetworks: "${ForwardedHeaders__KnownNetworks:-172.16.0.0/12}"
+      ObjectStorage__Endpoint: "${ObjectStorage__Endpoint:?falta ObjectStorage__Endpoint}"
+      ObjectStorage__PublicEndpoint: "${ObjectStorage__PublicEndpoint:-}"
+      ObjectStorage__Bucket: "${ObjectStorage__Bucket:?falta ObjectStorage__Bucket}"
+      ObjectStorage__UseSsl: "${ObjectStorage__UseSsl:-true}"
+      ObjectStorage__Region: "${ObjectStorage__Region:-us-east-1}"
+      ObjectStorage__PresignedExpiryMinutes: "${ObjectStorage__PresignedExpiryMinutes:-15}"
+      Smtp__Host: "${Smtp__Host:?falta Smtp__Host}"
+      Smtp__Port: "${Smtp__Port:-587}"
+      Smtp__User: "${Smtp__User:-}"
+      Smtp__From: "${Smtp__From:?falta Smtp__From}"
+      Smtp__UseSsl: "${Smtp__UseSsl:-true}"
+      Seq__ServerUrl: "${Seq__ServerUrl:-}"
+      Observability__OtlpEndpoint: "${Observability__OtlpEndpoint:-}"
+      BackgroundJobs__OperatorTenantId: "${BackgroundJobs__OperatorTenantId:-}"
+      BackgroundJobs__SessionPurge__DryRun: "${BackgroundJobs__SessionPurge__DryRun:-true}"
+      # --- SECRETOS (GitHub Secrets; nunca en archivo ni en la imagen) ---
+      ConnectionStrings__DefaultConnection: ${ConnectionStrings__DefaultConnection:?falta secret ConnectionStrings__DefaultConnection}
+      Jwt__Key: ${Jwt__Key:?falta secret Jwt__Key}
+      Totp__EncryptionKey: ${Totp__EncryptionKey:?falta secret Totp__EncryptionKey}
+      Bootstrap__Secret: ${Bootstrap__Secret:-}
+      ObjectStorage__AccessKey: ${ObjectStorage__AccessKey:?falta secret ObjectStorage__AccessKey}
+      ObjectStorage__SecretKey: ${ObjectStorage__SecretKey:?falta secret ObjectStorage__SecretKey}
+      Smtp__Password: ${Smtp__Password:-}
+    # El HEALTHCHECK viene en la imagen (la sonda .NET contra /health/ready); aqui no se repite.
+    # Sin rotacion, el log estructurado (un evento por peticion) llena el disco y tumba de paso a Caddy.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [internal]
+    # Sin puertos publicados: solo Caddy la alcanza, por la red interna.
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: back-template-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: "${API_DOMAIN:?falta API_DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      - api
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  caddy_data:
+  caddy_config:

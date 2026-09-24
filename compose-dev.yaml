@@ -1,48 +1,114 @@
+# =============================================================================
+# compose-dev.yaml - la API de back-template en contenedor
+# =============================================================================
+# DOS MODOS, y el primero es el normal:
+#
+#   1. Contra el DEVSTACK compartido (un solo Postgres, MinIO, Mailpit y Seq para todos los
+#      productos de la maquina). Levanta la infraestructura una vez y luego esto:
+#
+#        docker compose -f compose-dev.yaml up -d --build
+#
+#      Se engancha a la red `devstack`, declarada EXTERNA: si la infraestructura no esta
+#      arriba, `up` falla diciendo que la red no existe, que es el error que se quiere (en vez
+#      de una API arrancando contra una base que no esta).
+#
+#   2. SOLO, sin devstack (un clon suelto, una maquina sin el workspace). El perfil
+#      `standalone` agrega su propio Postgres, MinIO y Mailpit en una red local:
+#
+#        docker network create devstack   # una vez; el mismo nombre, pero vacia
+#        docker compose -f compose-dev.yaml --profile standalone up -d --build
+#
+#      Ojo con los puertos: 5432, 9000/9001 y 1025/8025 chocan con el devstack si esta arriba.
+#
+# En los dos modos hay que PROVISIONAR la base antes de que la API este sana (roles, base,
+# migraciones y RLS). Ver docs/DEV-STACK.md: `./scripts/dev-db.sh all`.
+#
+# Esto NO sustituye a `dotnet run`: para desarrollar gana `dotnet run` (hot reload, depurador).
+# Si vuelves a `dotnet run`, baja antes este contenedor o competiran por el 5060.
+#
+# Credenciales de DESARROLLO LOCAL. No protegen nada: todo escucha solo en esta maquina.
+# =============================================================================
+
+name: back-template-dev
+
 services:
 
   api:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: final
-    image: back-template:dev
+    container_name: back-template-api
+    restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_HTTP_PORTS: "8080"
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=mydb_dev;Username=postgres;Password=postgres"
-      Jwt__Key: "dev-secret-key-change-me-at-least-32-chars!!"
+      # `backtemplate_app` y NO el owner: RlsRoleGuard tumba el arranque si el rol es superusuario o
+      # tiene BYPASSRLS, porque con uno asi las policies de RLS se ignoran sin ningun sintoma.
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=backtemplate;Username=backtemplate_app;Password=backtemplate_app_dev"
+      Jwt__Key: ${BACKTEMPLATE_JWT_KEY:-dev-only-back-template-jwt-key-0123456789abcdef}
+      Totp__EncryptionKey: ${BACKTEMPLATE_TOTP_KEY:-dev-only-back-template-totp-key-0123456789abcdef}
+      Bootstrap__Secret: ${BACKTEMPLATE_BOOTSTRAP_SECRET:-dev-only-back-template-bootstrap-0123456789}
+      # Endpoint para HABLAR con MinIO (nombre del servicio dentro de la red) y PublicEndpoint para
+      # FIRMAR las URLs con el host que abre el navegador. La firma S3 incluye el host.
+      ObjectStorage__Endpoint: "minio:9000"
+      ObjectStorage__PublicEndpoint: "localhost:9000"
+      ObjectStorage__AccessKey: minioadmin
+      ObjectStorage__SecretKey: minioadmin
+      ObjectStorage__Bucket: backtemplate
+      ObjectStorage__CreateBucketIfMissing: "true"
+      Smtp__Host: mailpit
+      Smtp__Port: "1025"
+      Smtp__UseSsl: "false"
+      Smtp__From: no-reply@back-template.local
+      Seq__ServerUrl: ${BACKTEMPLATE_SEQ_URL:-http://seq:5341}
+      Cors__AllowedOrigins: "http://localhost:${BACKTEMPLATE_WEB_PORT:-5173}"
+      Web__BaseUrl: "http://localhost:${BACKTEMPLATE_WEB_PORT:-5173}"
     ports:
-      - "8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
+      # El MISMO puerto que con `dotnet run`, para que el .env del cliente valga en los dos modos.
+      - "${BACKTEMPLATE_API_PORT:-5060}:8080"
 
+  # --- Solo con --profile standalone ---------------------------------------------------------------
   postgres:
+    profiles: [standalone]
     image: postgres:17-alpine
+    container_name: back-template-postgres
     environment:
-      POSTGRES_DB: mydb_dev
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:
-      - postgres_dev_data:/var/lib/postgresql/data
+      - back-template-pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d mydb_dev"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
 
-  seq:
-    image: datalust/seq:latest
+  minio:
+    profiles: [standalone]
+    image: minio/minio:latest
+    container_name: back-template-minio
+    command: server /data --console-address ":9001"
     environment:
-      ACCEPT_EULA: "Y"
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "5341:80"
+      - "9000:9000"
+      - "9001:9001"
     volumes:
-      - seq_dev_data:/data
+      - back-template-minio:/data
+
+  mailpit:
+    profiles: [standalone]
+    image: axllent/mailpit:latest
+    container_name: back-template-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+networks:
+  default:
+    name: devstack
+    external: true
 
 volumes:
-  postgres_dev_data:
-  seq_dev_data:
+  back-template-pg:
+  back-template-minio:

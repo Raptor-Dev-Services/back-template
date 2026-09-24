@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sonda de salud para el HEALTHCHECK del contenedor. La imagen final es chiseled: sin shell, sin curl, sin
+    wget. En vez de meterle un busybox (un binario ajeno mas que parchear), la sonda es un programa .NET de
+    unas lineas que corre con el mismo runtime que ya trae la imagen.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>
