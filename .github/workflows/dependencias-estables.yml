@@ -41,7 +41,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # python3 viene preinstalado en ubuntu-24.04 y el detector usa solo la biblioteca estandar
       # (xml.etree y json), asi que no hace falta ni setup-python ni instalar nada.

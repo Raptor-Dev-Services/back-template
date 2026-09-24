@@ -1,0 +1,12 @@
+# Las acciones de los workflows van fijadas por SHA (una etiqueta como @v4 es mutable: quien controle el repo de la
+# accion puede moverla). Un SHA fijo no se actualiza solo; Dependabot abre el PR con el SHA nuevo y la version en el
+# comentario, y el CI decide si entra.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
