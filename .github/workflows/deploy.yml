@@ -1,0 +1,192 @@
+# Deploy de PRODUCCION: al empujar un tag vX.Y.Z (o vX.Y.Z-beta-NN) sobre un commit de main se prueba, se
+# construye y publica la imagen en GHCR, se MIGRA la base y el servidor jala la imagen por SSH.
+#
+# Orden: test -> build-push -> migrate -> deploy. Si las pruebas fallan no hay imagen; si la migracion falla no
+# hay deploy. Esquema ANTES que codigo: una migracion retrocompatible la tolera la version vieja que sigue
+# corriendo; codigo nuevo contra esquema viejo revienta.
+#
+# El push a GHCR usa el GITHUB_TOKEN (packages: write). El servidor, para JALAR una imagen privada, necesita
+# `docker login ghcr.io` una vez con un token read:packages.
+#
+# `migrate` y `deploy` solo corren con la variable de repo AUTO_DEPLOY=true. Sin ella el pipeline construye y
+# publica la imagen y se detiene. Secretos y variables: docs/deploy/github-secrets.md.
+name: Deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: build (0/0) + test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore back-template.slnx
+      - run: dotnet build back-template.slnx --no-restore -warnaserror
+      - run: dotnet test back-template.slnx --no-build --verbosity minimal
+
+  build-push:
+    name: build + push a GHCR
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0 # historia completa: se verifica que el tag este en main
+
+      - name: Validar formato del tag (vX.Y.Z o vX.Y.Z-beta-NN)
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta-[0-9]+)?$ ]]; then
+            echo "Tag '${GITHUB_REF_NAME}' invalido. Usa vX.Y.Z o vX.Y.Z-beta-NN." >&2
+            exit 1
+          fi
+
+      - name: Verificar que el tag este en main
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "El commit del tag no esta en main; solo se despliega desde main." >&2
+            exit 1
+          fi
+
+      # GHCR exige minusculas; el nombre sale del repo para que un producto clonado de la plantilla no tenga
+      # que editar el workflow.
+      - name: Nombre de la imagen
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-beta') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  migrate:
+    name: migrar la base (esquema + grants + RLS)
+    needs: build-push
+    if: vars.AUTO_DEPLOY == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Comprobar que la conexion OWNER y el acceso al servidor estan configurados
+        env:
+          PG_OWNER_URI: ${{ secrets.PG_OWNER_URI }}
+          PG_OWNER_PASSWORD: ${{ secrets.PG_OWNER_PASSWORD }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          faltan=""
+          [ -z "${PG_OWNER_URI}" ] && faltan="${faltan} PG_OWNER_URI"
+          [ -z "${PG_OWNER_PASSWORD}" ] && faltan="${faltan} PG_OWNER_PASSWORD"
+          [ -z "${VPS_HOST}" ] && faltan="${faltan} VPS_HOST"
+          if [ -n "${faltan}" ]; then
+            echo "Faltan secrets:${faltan}. Ver docs/deploy/github-secrets.md." >&2
+            exit 1
+          fi
+
+      # Corre EN EL SERVIDOR: la Postgres gestionada suele aceptar solo IP de confianza, y las de los runners
+      # cambian. El servidor solo tiene Docker, asi que el esquema viaja DENTRO de la imagen como SQL
+      # idempotente. La imagen es chiseled (sin `cat`): se extrae con `docker create` + `docker cp`.
+      - name: SSH -> migraciones + grants + RLS + guardia
+        uses: appleboy/ssh-action@v1
+        env:
+          MIGRATION_IMAGE: ${{ needs.build-push.outputs.image }}:${{ github.ref_name }}
+          PG_OWNER_URI: ${{ secrets.PG_OWNER_URI }}
+          # Aparte, en PGPASSWORD: asi no aparece en la linea de comandos de ningun proceso del servidor.
+          PGPASSWORD: ${{ secrets.PG_OWNER_PASSWORD }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: MIGRATION_IMAGE,PG_OWNER_URI,PGPASSWORD
+          script_stop: true
+          script: |
+            set -euo pipefail
+            PSQL_IMAGE="postgres:17-alpine"
+
+            # Tablas con TenantId que a proposito NO llevan RLS (se leen antes de que exista tenant). Es la
+            # MISMA lista que RlsIsolationTests.ExcludedOnPurpose y que el encabezado de 001_enable_rls.sql.
+            SIN_RLS_A_PROPOSITO="'UserCredential','RefreshToken','PasswordSetupToken','TwoFactorRecoveryCode','Role','RolePermission','UserRole'"
+
+            WORK=$(mktemp -d)
+            trap 'rm -rf "$WORK"' EXIT
+            docker pull "$MIGRATION_IMAGE"
+            CID=$(docker create "$MIGRATION_IMAGE")
+            docker cp "$CID:/app/migrations/." "$WORK/"
+            docker rm "$CID" >/dev/null
+
+            psql_file() {
+              docker run --rm -e PGPASSWORD -v "$WORK:/sql:ro" "$PSQL_IMAGE" \
+                psql "$PG_OWNER_URI" -v ON_ERROR_STOP=1 -q -f "/sql/$1"
+            }
+            psql_query() {
+              docker run --rm -e PGPASSWORD "$PSQL_IMAGE" \
+                psql "$PG_OWNER_URI" -v ON_ERROR_STOP=1 -t -A -q -c "$1"
+            }
+
+            echo "== 1/4 esquema (idempotente contra __EFMigrationsHistory) =="
+            psql_file migrations.sql
+            echo "== 2/4 grants del rol de la aplicacion (sin DELETE) =="
+            psql_file 000_app_role_grants.sql
+            echo "== 3/4 RLS: se re-aplica para que una tabla nueva no quede sin policy =="
+            psql_file 001_enable_rls.sql
+
+            echo "== 4/4 guardia: ninguna tabla con TenantId sin RLS =="
+            SIN_POLICY=$(psql_query "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'TenantId' AND NOT a.attisdropped) AND c.relname NOT IN ($SIN_RLS_A_PROPOSITO) ORDER BY 1;")
+            if [ -n "$SIN_POLICY" ]; then
+              echo "FALLO: tablas con TenantId y SIN RLS (fuga de aislamiento entre tenants):" >&2
+              echo "$SIN_POLICY" >&2
+              echo "Agrega su bloque a 001_enable_rls.sql, o -si es deliberado- a SIN_RLS_A_PROPOSITO con su motivo." >&2
+              exit 1
+            fi
+
+            APLICADAS=$(psql_query "SELECT count(*) FROM \"__EFMigrationsHistory\";")
+            echo "Base al dia: $APLICADAS migraciones aplicadas."
+
+  deploy:
+    name: deploy al servidor (tag exacto)
+    needs: [build-push, migrate]
+    if: vars.AUTO_DEPLOY == 'true'
+    uses: ./.github/workflows/_deploy-to-vps.yml
+    with:
+      image_name: ${{ needs.build-push.outputs.image }}
+      image_tag: ${{ github.ref_name }}
+    secrets: inherit

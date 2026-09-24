@@ -181,7 +181,7 @@ ASP.NET Core mapea secciones anidadas usando `:` (Linux/Mac) o `__` (Windows/Doc
 
 ```bash
 # Equivalente a:  { "Jwt": { "Key": "mi-clave-secreta" } }
-Jwt__Key=mi-clave-secreta-de-produccion-de-al-menos-32-chars
+Jwt__Key=<JWT_KEY_ALEATORIA_DE_32_BYTES_O_MAS>
 
 # Equivalente a:  { "ConnectionStrings": { "MainDbConnection": "..." } }
 ConnectionStrings__MainDbConnection=Host=192.168.1.100;Port=5432;...

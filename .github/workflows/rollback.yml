@@ -1,0 +1,76 @@
+# Rollback de PRODUCCION: vuelve a poner a correr una version ANTERIOR ya publicada en GHCR.
+#
+# A MANO (Actions -> Rollback -> Run workflow): revertir es una decision humana en medio de un incidente. Inyecta
+# los secretos igual que el deploy porque comparte su codigo (_deploy-to-vps.yml).
+#
+# NO revierte el ESQUEMA. Si el release revertido traia una migracion retrocompatible, la version anterior
+# convive con ella y esto basta; si no lo era, la salida es arreglar hacia adelante o restaurar un respaldo.
+# Ver docs/deploy/runbook.md. No depende de AUTO_DEPLOY: poder revertir no puede estar condicionado a eso.
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag EXACTO ya publicado en GHCR (p. ej. v1.2.2)"
+        required: true
+        type: string
+      motivo:
+        description: "Por que se revierte (queda en el historial de la corrida)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  verificar:
+    name: comprobar que la version existe en GHCR
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+    steps:
+      # Entrada tecleada por una persona: va por env y se lee entre comillas, nunca interpolada en el script.
+      - name: Validar formato del tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta-[0-9]+)?$ ]]; then
+            echo "Version '$VERSION' invalida. Usa vX.Y.Z o vX.Y.Z-beta-NN." >&2
+            exit 1
+          fi
+
+      - name: Nombre de la imagen
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comprobar que la imagen existe
+        env:
+          VERSION: ${{ inputs.version }}
+          MOTIVO: ${{ inputs.motivo }}
+          IMAGE: ${{ steps.name.outputs.image }}
+        run: |
+          if ! docker manifest inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+            echo "No existe ${IMAGE}:${VERSION} en GHCR." >&2
+            exit 1
+          fi
+          echo "Revirtiendo a ${VERSION}. Motivo: ${MOTIVO}"
+
+  rollback:
+    name: rollback al servidor
+    needs: verificar
+    uses: ./.github/workflows/_deploy-to-vps.yml
+    with:
+      image_name: ${{ needs.verificar.outputs.image }}
+      image_tag: ${{ inputs.version }}
+    secrets: inherit

@@ -1,0 +1,49 @@
+# Plantilla generica del catalogo Raptor. Rellena los {{PLACEHOLDERS}} - ver templates/project-variables.md
+# (Esta no tiene ninguno: se copia tal cual a <repo>/.github/workflows/dependencias-estables.yml)
+#
+# Puerta de dependencias inestables.
+#
+# Hace cumplir la regla `stable-dependencies`: ningun paquete en prerelease (-alpha, -beta, -rc,
+# -preview, -dev, -next, -canary) ni en version flotante (1.2.*, latest), salvo que este declarado
+# en PRERELEASE-PERMITIDOS.txt con motivo y fecha de revision.
+#
+# POR QUE ES UN WORKFLOW APARTE y no un paso dentro del gate de build: corre en segundos y no
+# necesita SDK, base de datos ni restaurar paquetes. Metido en el job de build solo daria su
+# veredicto despues de varios minutos de compilar, y justo este fallo conviene saberlo antes de
+# gastar el resto del pipeline.
+#
+# FALLA EL JOB A PROPOSITO. Un aviso que no rompe nada se lee una vez y se ignora despues. Si esto
+# se pone rojo, la salida correcta es subir el paquete a su ultima version estable; declarar la
+# excepcion es el ultimo recurso y solo cuando el paquete no tenga ninguna estable publicada jamas.
+#
+# Deuda conocida, la misma que el resto de los workflows del repo: las acciones van fijadas por
+# etiqueta mayor (`@v4`), que es mutable. Fijarlas por SHA esta pendiente.
+
+name: dependencias-estables
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependencias-estables-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencias:
+    name: Sin prerelease ni versiones flotantes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # python3 viene preinstalado en ubuntu-24.04 y el detector usa solo la biblioteca estandar
+      # (xml.etree y json), asi que no hace falta ni setup-python ni instalar nada.
+      - name: Revisar dependencias
+        run: python3 scripts/check-prerelease-deps.py

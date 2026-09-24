@@ -1,0 +1,117 @@
+# Workflow REUTILIZABLE: pone a correr una version concreta de la imagen en el servidor y no se da por bueno
+# hasta que /health/ready responde sano.
+#
+# Desplegar y revertir son LA MISMA operacion (poner a correr un tag) y comparten este codigo. Duplicarlo
+# significaria que el dia que se agregue un secreto el deploy lo inyecta y el rollback no, y el rollback moriria
+# por `${VAR:?}` en mitad de un incidente. Lo llaman deploy.yml (por tag) y rollback.yml (a mano).
+name: deploy al servidor (reutilizable)
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: "Imagen en GHCR sin tag (ghcr.io/<owner>/<repo>, en minusculas)"
+        required: true
+        type: string
+      image_tag:
+        description: "Tag EXACTO (vX.Y.Z o vX.Y.Z-beta-NN)"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: pull + up + verificar readiness
+    runs-on: ubuntu-24.04
+    steps:
+      # Sin esto, la falta de configuracion sale como un error de SSH ilegible y parece que el servidor se cayo.
+      - name: Comprobar que el acceso al servidor esta configurado
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          faltan=""
+          [ -z "${VPS_HOST}" ] && faltan="${faltan} VPS_HOST"
+          [ -z "${VPS_USER}" ] && faltan="${faltan} VPS_USER"
+          [ -z "${VPS_SSH_KEY}" ] && faltan="${faltan} VPS_SSH_KEY"
+          if [ -n "${faltan}" ]; then
+            echo "Faltan secrets de acceso al servidor:${faltan}. Ver docs/deploy/github-secrets.md." >&2
+            exit 1
+          fi
+
+      - name: SSH -> pull + up del tag exacto
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/back-template' }}
+          # Config NO secreta: GitHub VARIABLES. Si no existe, llega vacia y el compose aplica su default.
+          API_DOMAIN: ${{ vars.API_DOMAIN }}
+          ASPNETCORE_ENVIRONMENT: ${{ vars.ASPNETCORE_ENVIRONMENT }}
+          Jwt__Issuer: ${{ vars.Jwt__Issuer }}
+          Jwt__Audience: ${{ vars.Jwt__Audience }}
+          Jwt__AccessTokenMinutes: ${{ vars.Jwt__AccessTokenMinutes }}
+          Jwt__RefreshTokenDays: ${{ vars.Jwt__RefreshTokenDays }}
+          Totp__Issuer: ${{ vars.Totp__Issuer }}
+          Cors__AllowedOrigins: ${{ vars.Cors__AllowedOrigins }}
+          Web__BaseUrl: ${{ vars.Web__BaseUrl }}
+          ForwardedHeaders__KnownNetworks: ${{ vars.ForwardedHeaders__KnownNetworks }}
+          ObjectStorage__Endpoint: ${{ vars.ObjectStorage__Endpoint }}
+          ObjectStorage__PublicEndpoint: ${{ vars.ObjectStorage__PublicEndpoint }}
+          ObjectStorage__Bucket: ${{ vars.ObjectStorage__Bucket }}
+          ObjectStorage__UseSsl: ${{ vars.ObjectStorage__UseSsl }}
+          ObjectStorage__Region: ${{ vars.ObjectStorage__Region }}
+          ObjectStorage__PresignedExpiryMinutes: ${{ vars.ObjectStorage__PresignedExpiryMinutes }}
+          Smtp__Host: ${{ vars.Smtp__Host }}
+          Smtp__Port: ${{ vars.Smtp__Port }}
+          Smtp__User: ${{ vars.Smtp__User }}
+          Smtp__From: ${{ vars.Smtp__From }}
+          Smtp__UseSsl: ${{ vars.Smtp__UseSsl }}
+          Seq__ServerUrl: ${{ vars.Seq__ServerUrl }}
+          Observability__OtlpEndpoint: ${{ vars.Observability__OtlpEndpoint }}
+          BackgroundJobs__OperatorTenantId: ${{ vars.BackgroundJobs__OperatorTenantId }}
+          BackgroundJobs__SessionPurge__DryRun: ${{ vars.BackgroundJobs__SessionPurge__DryRun }}
+          # SECRETOS (GitHub Secrets). El compose los interpola; ninguno toca disco en el servidor.
+          ConnectionStrings__DefaultConnection: ${{ secrets.ConnectionStrings__DefaultConnection }}
+          Jwt__Key: ${{ secrets.Jwt__Key }}
+          Totp__EncryptionKey: ${{ secrets.Totp__EncryptionKey }}
+          Bootstrap__Secret: ${{ secrets.Bootstrap__Secret }}
+          ObjectStorage__AccessKey: ${{ secrets.ObjectStorage__AccessKey }}
+          ObjectStorage__SecretKey: ${{ secrets.ObjectStorage__SecretKey }}
+          Smtp__Password: ${{ secrets.Smtp__Password }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: IMAGE_NAME,IMAGE_TAG,DEPLOY_DIR,API_DOMAIN,ASPNETCORE_ENVIRONMENT,Jwt__Issuer,Jwt__Audience,Jwt__AccessTokenMinutes,Jwt__RefreshTokenDays,Totp__Issuer,Cors__AllowedOrigins,Web__BaseUrl,ForwardedHeaders__KnownNetworks,ObjectStorage__Endpoint,ObjectStorage__PublicEndpoint,ObjectStorage__Bucket,ObjectStorage__UseSsl,ObjectStorage__Region,ObjectStorage__PresignedExpiryMinutes,Smtp__Host,Smtp__Port,Smtp__User,Smtp__From,Smtp__UseSsl,Seq__ServerUrl,Observability__OtlpEndpoint,BackgroundJobs__OperatorTenantId,BackgroundJobs__SessionPurge__DryRun,ConnectionStrings__DefaultConnection,Jwt__Key,Totp__EncryptionKey,Bootstrap__Secret,ObjectStorage__AccessKey,ObjectStorage__SecretKey,Smtp__Password
+          # script_stop + `set -e`: sin ellos el paso terminaba en `docker image prune -f` (siempre 0) y un `up`
+          # fallido se reportaba VERDE.
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "$DEPLOY_DIR"
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+
+            # Verde no es desplegado: se comprueba contra el contenedor real que corre lo que se pidio.
+            ESPERADA="${IMAGE_NAME}:${IMAGE_TAG}"
+            CORRIENDO=$(docker inspect --format '{{.Config.Image}}' back-template-api)
+            if [ "$CORRIENDO" != "$ESPERADA" ]; then
+              echo "FALLO: se pidio $ESPERADA pero el contenedor corre $CORRIENDO." >&2
+              exit 1
+            fi
+
+            # Verificacion POST-DEPLOY sobre /health/ready (Postgres + almacenamiento), con la misma sonda del
+            # HEALTHCHECK y por nombre fijo de contenedor (sin re-interpolar el compose). 120 s de margen.
+            for intento in $(seq 1 40); do
+              if docker exec back-template-api dotnet /app/probe/HealthProbe.dll >/dev/null 2>&1; then
+                echo "Listo: ${IMAGE_TAG} responde sano en /health/ready tras $intento intento(s)."
+                exit 0
+              fi
+              sleep 3
+            done
+
+            echo "FALLO: /health/ready no respondio sano en 120 s. Ultimas lineas del contenedor:" >&2
+            docker logs --tail 50 back-template-api >&2
+            exit 1

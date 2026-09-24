@@ -1,0 +1,73 @@
+# Quality gate: corre en cada PR y en cada push a main.
+# Puertas (regla ci-quality-gates): build con 0 errores / 0 warnings + TODAS las pruebas en verde.
+# Las de integracion levantan un Postgres real con Testcontainers: el runner ubuntu trae Docker, no hace falta
+# declarar un service. El deploy no vive aqui: esto solo valida el codigo.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build (0/0) + test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # Common es un submodulo fijado a un commit: sin `submodules`, el build no encuentra sus proyectos.
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup .NET (la version la fija global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore back-template.slnx
+
+      # -warnaserror hace cumplir la DoD "0 errores / 0 warnings". NuGetAudit (Directory.Build.props) convierte
+      # un paquete con vulnerabilidad conocida en warning, asi que tambien lo tumba.
+      - name: Build (0 warnings)
+        run: dotnet build back-template.slnx --no-restore -warnaserror
+
+      # El conteo sale en el resumen: una suite que de pronto corre menos pruebas es un aviso, no un exito.
+      - name: Test
+        run: dotnet test back-template.slnx --no-build --verbosity minimal
+
+      # La imagen tambien es codigo: un Dockerfile roto se descubre aqui y no el dia del tag.
+      - name: Build de la imagen (sin publicar)
+        run: docker build -t back-template-api:ci .
+
+  secretos:
+    name: escaneo de secretos (bloqueante)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # fetch-depth: 0 -> gitleaks recorre el HISTORIAL. Un secreto borrado en un commit posterior sigue en los
+      # anteriores y en cada clon: no se borra, se rota.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Instalar gitleaks (version fijada)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # --redact: el hallazgo no se imprime en claro en el log de CI.
+      - name: Escanear historial y arbol
+        run: gitleaks detect --no-banner --redact --verbose

@@ -1,0 +1,43 @@
+# Configuracion de gitleaks para el gate de CI (ci.yml, job `secretos`).
+#
+# El gate BLOQUEA a proposito: un secreto que entra al historial ya no se borra -queda en cada clon-, solo se
+# rota. Avisar en vez de bloquear no sirve de nada.
+#
+# REGLA PARA AMPLIARLO: una exencion nueva se justifica por escrito aqui o no entra. Un allowlist sin motivos es
+# el sitio donde se esconde el proximo secreto de verdad. Verificacion tras editar:
+#   gitleaks detect --no-banner --redact   ->  "no leaks found"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Valores de desarrollo local y de prueba, publicos por diseno"
+regexTarget = "line"
+regexes = [
+  # 1. Claves de las pruebas de integracion (TestJwt, ApiFactory). Firman y validan dentro del mismo proceso de
+  #    prueba contra un Postgres desechable; no tocan ningun entorno real.
+  '''(Key|Secret|EncryptionKey)\s*=\s*"integration-tests-''',
+  '''"integration-tests-[a-z0-9-]+"''',
+
+  # 1b. Contrasenas y claves literales de las pruebas (unitarias y de integracion): datos de entrada de los
+  #     casos, deliberadamente reconocibles por su prefijo. Una clave real no lleva estos prefijos.
+  '''"Contrasena-[A-Za-z]+-[0-9]+"''',
+  '''"(otra-clave-completamente-distinta|secreto-correcto)-[0-9a-f-]+"''',
+
+  # 2. Valores dev-only de compose-dev.yaml y del provisioning del devstack: identicos para cualquiera que clone
+  #    el repo y solo sirven contra servicios que escuchan en la propia maquina.
+  '''dev-only-back-template-''',
+  '''backtemplate_(owner|app)_dev''',
+  '''minioadmin''',
+
+  # 3. Placeholders de .env.example y de la documentacion.
+  '''(ChangeMe|CHANGE_ME|REPLACE_ME|<[A-Z_]+>)''',
+]
+
+# -----------------------------------------------------------------------------------------------------------------
+# EXENCION POR COMMIT (historial anterior a este gate). docs/Config.md:184 traia un EJEMPLO de valor, en texto
+# ("mi-clave-secreta-de-produccion-de-al-menos-32-chars"), no una clave usada en ningun entorno; el arbol actual
+# ya muestra un placeholder. `commits` compara contra el SHA COMPLETO.
+[[allowlists]]
+description = "Ejemplo de documentacion en el historial, no un secreto"
+commits = ["6487d96df5bad5b96884986a6146f75a246e9879"]
