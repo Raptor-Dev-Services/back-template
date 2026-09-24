@@ -26,6 +26,9 @@ public static class KnownPermissions
     /// <summary>Ver, pausar y disparar a mano las tareas programadas (operacion de plataforma).</summary>
     public const string TasksManage = "tasks.manage";
 
+    /// <summary>Pedir URLs de lectura de los archivos del tenant.</summary>
+    public const string FilesRead = "files.read";
+
     /// <summary>Subir archivos a nombre del tenant.</summary>
     public const string FilesWrite = "files.write";
 }

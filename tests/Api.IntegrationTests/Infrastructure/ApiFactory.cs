@@ -6,13 +6,15 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Kernel.Email;
+using Shared.Kernel.Storage;
 
 namespace Api.IntegrationTests.Infrastructure;
 
 /// <summary>
 /// La API real (Program.cs completo: middlewares, filtros, auth, guardas de arranque) contra el Postgres de
 /// <see cref="PostgresFixture"/>, conectada con el ROL DE LA APLICACION. Solo se sustituye el correo saliente,
-/// por un buzon en memoria del que las pruebas leen los enlaces con token.
+/// por un buzon en memoria del que las pruebas leen los enlaces con token, y el almacenamiento de objetos, por uno
+/// en memoria (el registro de propiedad SI es el real, en Postgres).
 /// </summary>
 public sealed class ApiFactory(PostgresFixture pg, IDictionary<string, string?>? overrides = null)
     : WebApplicationFactory<Program>
@@ -20,6 +22,8 @@ public sealed class ApiFactory(PostgresFixture pg, IDictionary<string, string?>?
     public const string BootstrapSecret = "integration-tests-bootstrap-secret-0123456789abcdef";
 
     public CapturingEmailSender Outbox { get; } = new();
+
+    public InMemoryObjectStorage Storage { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -41,6 +45,7 @@ public sealed class ApiFactory(PostgresFixture pg, IDictionary<string, string?>?
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IEmailSender>(Outbox);
+            services.AddSingleton<IObjectStorage>(Storage);
             services.AddControllers().AddApplicationPart(typeof(ApiFactory).Assembly);
         });
     }

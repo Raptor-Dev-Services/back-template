@@ -51,3 +51,11 @@ DROP POLICY IF EXISTS auditlog_tenant_isolation ON public."AuditLog";
 CREATE POLICY auditlog_tenant_isolation ON public."AuditLog"
     USING ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint)
     WITH CHECK ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint);
+
+-- Registro de propiedad de los archivos: firmar una URL de lectura exige que la clave sea del tenant.
+ALTER TABLE public."StoredFile" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."StoredFile" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS storedfile_tenant_isolation ON public."StoredFile";
+CREATE POLICY storedfile_tenant_isolation ON public."StoredFile"
+    USING ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint)
+    WITH CHECK ("TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint);

@@ -27,6 +27,7 @@ public static class RbacCatalog
         (KnownPermissions.UsersManage, "Invitar, editar, bloquear y desactivar usuarios"),
         (KnownPermissions.AuditRead, "Consultar la bitacora de acciones"),
         (KnownPermissions.TasksManage, "Operar las tareas programadas"),
+        (KnownPermissions.FilesRead, "Ver archivos del tenant"),
         (KnownPermissions.FilesWrite, "Subir archivos"),
     ];
 
@@ -41,8 +42,8 @@ public static class RbacCatalog
         [RoleCodes.Admin] =
         [
             KnownPermissions.UsersRead, KnownPermissions.UsersManage, KnownPermissions.AuditRead,
-            KnownPermissions.TasksManage, KnownPermissions.FilesWrite,
+            KnownPermissions.TasksManage, KnownPermissions.FilesRead, KnownPermissions.FilesWrite,
         ],
-        [RoleCodes.Member] = [KnownPermissions.UsersRead, KnownPermissions.FilesWrite],
+        [RoleCodes.Member] = [KnownPermissions.UsersRead, KnownPermissions.FilesRead, KnownPermissions.FilesWrite],
     };
 }

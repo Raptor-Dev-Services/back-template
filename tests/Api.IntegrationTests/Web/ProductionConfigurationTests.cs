@@ -18,6 +18,8 @@ public sealed class ProductionConfigurationTests(PostgresFixture pg)
         ["Cors:AllowedOrigins"] = "https://app.example.test",
         ["Smtp:Host"] = "smtp.example.test",
         ["Smtp:From"] = "no-reply@example.test",
+        ["ObjectStorage:AccessKey"] = "access-key",
+        ["ObjectStorage:SecretKey"] = "secret-key",
     };
 
     [Theory]
@@ -25,6 +27,7 @@ public sealed class ProductionConfigurationTests(PostgresFixture pg)
     [InlineData("Web:BaseUrl", "http://app.example.test")]
     [InlineData("Cors:AllowedOrigins", "")]
     [InlineData("Smtp:Host", "")]
+    [InlineData("ObjectStorage:SecretKey", "")]
     public void Sin_un_obligatorio_de_produccion_no_arranca(string key, string value)
     {
         var settings = new Dictionary<string, string?>(CompleteProduction) { [key] = value };

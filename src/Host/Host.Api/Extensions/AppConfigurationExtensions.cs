@@ -34,6 +34,7 @@ public static class AppConfigurationExtensions
     ///   <item><c>Web:BaseUrl</c>: sin ella los correos salen con enlaces a localhost; nadie recibe un error.</item>
     ///   <item><c>Cors:AllowedOrigins</c>: sin ella el navegador bloquea todo y el sintoma apunta a la API.</item>
     ///   <item><c>Smtp:Host</c>: sin ella cada invitacion y cada restablecimiento fallan al enviar.</item>
+    ///   <item><c>ObjectStorage:AccessKey/SecretKey</c>: sin ellas cada subida de archivo falla.</item>
     /// </list>
     /// </summary>
     public static void EnsureProductionSettings(this IConfiguration configuration, IHostEnvironment environment)
@@ -53,6 +54,9 @@ public static class AppConfigurationExtensions
 
         if (string.IsNullOrWhiteSpace(configuration["Smtp:Host"]))
             missing.Add("Smtp__Host");
+
+        if (string.IsNullOrWhiteSpace(configuration["ObjectStorage:AccessKey"]) || string.IsNullOrWhiteSpace(configuration["ObjectStorage:SecretKey"]))
+            missing.Add("ObjectStorage__AccessKey / ObjectStorage__SecretKey");
 
         if (missing.Count > 0)
             throw new InvalidOperationException(

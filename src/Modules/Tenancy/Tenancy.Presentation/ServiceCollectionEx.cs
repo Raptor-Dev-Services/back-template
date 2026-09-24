@@ -10,6 +10,10 @@ using Tenancy.Application.UseCases.AutomatedTasks.GetAutomatedTaskHistory.Respon
 using Tenancy.Application.UseCases.AutomatedTasks.ListAutomatedTasks.Responses;
 using Tenancy.Application.UseCases.AutomatedTasks.RunAutomatedTaskNow.Responses;
 using Tenancy.Application.UseCases.AutomatedTasks.SetAutomatedTaskEnabled.Responses;
+using Tenancy.Application.UseCases.Files;
+using Tenancy.Application.UseCases.Files.GetFileUrl.Responses;
+using Tenancy.Application.UseCases.Files.GetFileUrls.Responses;
+using Tenancy.Application.UseCases.Files.UploadFile.Responses;
 using Tenancy.Application.UseCases.GetAuditLog.Responses;
 using Tenancy.Presentation.Controllers;
 
@@ -25,6 +29,9 @@ public static class ServiceCollectionEx
         services.AddScoped<INotificationHandler<SetAutomatedTaskEnabledResponse>, SetAutomatedTaskEnabledPresenter>();
         services.AddScoped<INotificationHandler<RunAutomatedTaskNowResponse>, RunAutomatedTaskNowPresenter>();
         services.AddScoped<INotificationHandler<GetAutomatedTaskHistoryResponse>, GetAutomatedTaskHistoryPresenter>();
+        services.AddScoped<INotificationHandler<UploadFileResponse>, UploadFilePresenter>();
+        services.AddScoped<INotificationHandler<GetFileUrlResponse>, GetFileUrlPresenter>();
+        services.AddScoped<INotificationHandler<GetFileUrlsResponse>, GetFileUrlsPresenter>();
 
         services.AddControllers().AddApplicationPart(typeof(ServiceCollectionEx).Assembly);
         return services;
@@ -45,3 +52,12 @@ internal sealed class RunAutomatedTaskNowPresenter(ResultViewModel<AutomatedTask
 
 internal sealed class GetAutomatedTaskHistoryPresenter(ResultViewModel<AutomatedTasksController> vm)
     : ResultPresenter<AutomatedTasksController, GetAutomatedTaskHistoryResponse, PagedResult<AutomatedTaskRunDto>>(vm);
+
+internal sealed class UploadFilePresenter(ResultViewModel<FilesController> vm)
+    : ResultPresenter<FilesController, UploadFileResponse, UploadedFileDto>(vm);
+
+internal sealed class GetFileUrlPresenter(ResultViewModel<FilesController> vm)
+    : ResultPresenter<FilesController, GetFileUrlResponse, FileUrlDto>(vm);
+
+internal sealed class GetFileUrlsPresenter(ResultViewModel<FilesController> vm)
+    : ResultPresenter<FilesController, GetFileUrlsResponse, FileUrlsDto>(vm);

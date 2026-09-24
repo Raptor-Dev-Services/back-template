@@ -128,6 +128,32 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StoredFile",
+                schema: "public",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    ObjectKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    ContentType = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    SizeBytes = table.Column<long>(type: "bigint", nullable: false),
+                    FileName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
+                    TenantId = table.Column<long>(type: "bigint", nullable: false),
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    DeletedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DeletedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StoredFile", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Tenant",
                 schema: "public",
                 columns: table => new
@@ -507,6 +533,25 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 filter: "\"IsDeleted\" = false");
 
             migrationBuilder.CreateIndex(
+                name: "IX_StoredFile_TenantId",
+                schema: "public",
+                table: "StoredFile",
+                column: "TenantId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StoredFile_TenantId_CreatedAtUtc",
+                schema: "public",
+                table: "StoredFile",
+                columns: new[] { "TenantId", "CreatedAtUtc" });
+
+            migrationBuilder.CreateIndex(
+                name: "UX_StoredFile_ObjectKey",
+                schema: "public",
+                table: "StoredFile",
+                column: "ObjectKey",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "UX_Tenant_PublicId",
                 schema: "public",
                 table: "Tenant",
@@ -623,6 +668,10 @@ namespace Shared.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "RolePermission",
+                schema: "public");
+
+            migrationBuilder.DropTable(
+                name: "StoredFile",
                 schema: "public");
 
             migrationBuilder.DropTable(

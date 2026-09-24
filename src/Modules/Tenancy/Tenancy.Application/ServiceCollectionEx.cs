@@ -9,6 +9,12 @@ using Tenancy.Application.UseCases.AutomatedTasks.RunAutomatedTaskNow;
 using Tenancy.Application.UseCases.AutomatedTasks.RunAutomatedTaskNow.Responses;
 using Tenancy.Application.UseCases.AutomatedTasks.SetAutomatedTaskEnabled;
 using Tenancy.Application.UseCases.AutomatedTasks.SetAutomatedTaskEnabled.Responses;
+using Tenancy.Application.UseCases.Files.GetFileUrl;
+using Tenancy.Application.UseCases.Files.GetFileUrl.Responses;
+using Tenancy.Application.UseCases.Files.GetFileUrls;
+using Tenancy.Application.UseCases.Files.GetFileUrls.Responses;
+using Tenancy.Application.UseCases.Files.UploadFile;
+using Tenancy.Application.UseCases.Files.UploadFile.Responses;
 using Tenancy.Application.UseCases.GetAuditLog;
 using Tenancy.Application.UseCases.GetAuditLog.Responses;
 using Tenancy.Contracts.Interfaces;
@@ -27,6 +33,11 @@ public static class ServiceCollectionEx
         services.AddScoped<IRequestHandler<SetAutomatedTaskEnabledRequest, SetAutomatedTaskEnabledResponse>, SetAutomatedTaskEnabledHandler>();
         services.AddScoped<IRequestHandler<RunAutomatedTaskNowRequest, RunAutomatedTaskNowResponse>, RunAutomatedTaskNowHandler>();
         services.AddScoped<IRequestHandler<GetAutomatedTaskHistoryRequest, GetAutomatedTaskHistoryResponse>, GetAutomatedTaskHistoryHandler>();
+
+        // Archivos del tenant (IObjectStorage e IStoredFileRegistry los registra AddObjectStorage).
+        services.AddScoped<IRequestHandler<UploadFileRequest, UploadFileResponse>, UploadFileHandler>();
+        services.AddScoped<IRequestHandler<GetFileUrlRequest, GetFileUrlResponse>, GetFileUrlHandler>();
+        services.AddScoped<IRequestHandler<GetFileUrlsRequest, GetFileUrlsResponse>, GetFileUrlsHandler>();
         return services;
     }
 }

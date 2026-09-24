@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Shared.Infrastructure.Persistence;
+using Shared.Kernel.Storage;
 
 namespace Host.Api.Extensions;
 
@@ -12,7 +13,7 @@ namespace Host.Api.Extensions;
 ///   <item><c>/health/live</c>: el PROCESO esta vivo. No toca dependencias: una base lenta no debe hacer que el
 ///   orquestador reinicie una aplicacion sana.</item>
 ///   <item><c>/health/ready</c>: puede servir trafico. Corre los checks etiquetados <see cref="ReadyTag"/>
-///   (Postgres con el rol de la aplicacion). 503 si alguno falla: se le deja de enrutar trafico.</item>
+///   (Postgres con el rol de la aplicacion, y el almacenamiento de objetos). 503 si alguno falla: se le deja de enrutar trafico.</item>
 /// </list>
 /// Anonimas, fuera del limite de tasa por IP estricto, y registradas a nivel Verbose (ver RequestLogging).
 /// </summary>
@@ -23,7 +24,8 @@ public static class HealthExtensions
     public static IServiceCollection AddHealthServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddHealthChecks()
-            .AddCheck<PostgresHealthCheck>("postgres", tags: [ReadyTag]);
+            .AddCheck<PostgresHealthCheck>("postgres", tags: [ReadyTag])
+            .AddCheck<ObjectStorageHealthCheck>("object-storage", tags: [ReadyTag]);
         return services;
     }
 
@@ -85,5 +87,22 @@ public static class HealthResponseWriter
             checks = report.Entries.Select(e => new { name = e.Key, status = e.Value.Status.ToString() }),
         };
         return context.Response.WriteAsync(JsonSerializer.Serialize(payload, JsonOptions), context.RequestAborted);
+    }
+}
+
+/// <summary>El almacenamiento de objetos responde y el bucket existe. Mensaje generico; el detalle, al log.</summary>
+internal sealed class ObjectStorageHealthCheck(IObjectStorage storage) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await storage.PingAsync(cancellationToken);
+            return HealthCheckResult.Healthy();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return HealthCheckResult.Unhealthy("El almacenamiento de objetos no responde.", ex);
+        }
     }
 }

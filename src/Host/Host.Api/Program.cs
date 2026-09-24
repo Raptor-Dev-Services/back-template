@@ -9,6 +9,7 @@ using Host.Api.Extensions;
 using Shared.Infrastructure;
 using Shared.Infrastructure.BackgroundJobs;
 using Shared.Infrastructure.Email;
+using Shared.Infrastructure.Storage;
 using Shared.Kernel.BackgroundJobs;
 using Shared.Kernel.Context;
 using Shared.Web;
@@ -63,6 +64,10 @@ builder.Services.AddAppEmail(builder.Configuration);
 // Tareas programadas: un despachador unico; cada modulo registra las suyas como IAutomatedTask.
 builder.Services.AddBackgroundJobs(
     builder.Configuration.GetSection(BackgroundJobsOptions.SectionName).Get<BackgroundJobsOptions>() ?? new BackgroundJobsOptions());
+// Almacenamiento de objetos (bucket privado, URLs prefirmadas) y registro de propiedad de cada archivo.
+builder.Services.AddObjectStorage(
+    builder.Configuration.GetSection(ObjectStorageOptions.SectionName).Get<ObjectStorageOptions>() ?? new ObjectStorageOptions());
+
 builder.Services.AddSingleton(
     builder.Configuration.GetSection(SessionPurgeOptions.SectionName).Get<SessionPurgeOptions>() ?? new SessionPurgeOptions());
 
