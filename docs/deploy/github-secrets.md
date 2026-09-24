@@ -61,6 +61,7 @@ default: sin ellas el `up` falla.
 | `Seq__ServerUrl`, `Observability__OtlpEndpoint` | no | vacio (sin exportar) |
 | `BackgroundJobs__OperatorTenantId` | no | vacio = nadie opera las tareas programadas desde la API |
 | `BackgroundJobs__SessionPurge__DryRun` | no | `true` (la purga solo cuenta) |
+| `BackgroundJobs__OrphanObjects__DryRun` | no | `true` (la purga de objetos huerfanos solo cuenta) |
 
 Agregar un valor nuevo toca **tres** lugares: esta tabla, `docker-compose.prod.yml` y la lista `envs:` de
 `_deploy-to-vps.yml`. Si falta en `envs:`, llega vacio aunque exista en GitHub.

@@ -20,7 +20,16 @@ public interface IObjectStorage
 
     /// <summary>Round-trip ligero al servidor (lo usa /health/ready). Lanza si no responde.</summary>
     Task PingAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// TODOS los objetos del bucket, con su ultima modificacion. Es para conciliar contra el registro de propiedad
+    /// (la purga de huerfanos), nunca para servir un listado a un usuario: no filtra por tenant.
+    /// </summary>
+    IAsyncEnumerable<StoredObjectInfo> ListAllAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>Un objeto tal como lo ve el store, sin saber quien es su dueno.</summary>
+public sealed record StoredObjectInfo(string ObjectKey, DateTime LastModifiedUtc);
 
 /// <summary>Un archivo registrado, tal como lo ve su dueno.</summary>
 public sealed record StoredFileDto(string ObjectKey, string ContentType, long SizeBytes, string? FileName, DateTime CreatedAtUtc);
@@ -65,6 +74,23 @@ public static class ObjectKeys
         && !objectKey.Contains('\\')
         && !objectKey.StartsWith('/')
         && objectKey.Split('/').All(segment => segment.Length > 0 && segment is not "." and not "..");
+
+    /// <summary>
+    /// El tenant del prefijo de una clave bien formada. False si la clave no sigue el formato de <see cref="NewFor"/>
+    /// (un objeto que no subio esta API): quien concilia NO debe tocarlo.
+    /// </summary>
+    public static bool TryGetTenantId(string? objectKey, out long tenantId)
+    {
+        tenantId = 0;
+        if (!IsWellFormed(objectKey))
+            return false;
+
+        var slash = objectKey!.IndexOf('/');
+        return slash > 0
+            && long.TryParse(objectKey.AsSpan(0, slash), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out tenantId)
+            && tenantId > 0;
+    }
 }
 
 /// <summary>

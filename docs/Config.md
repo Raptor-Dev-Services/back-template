@@ -27,6 +27,7 @@ Arranque en local: `cp .env.example .env` y ajustar. `.env.example` documenta ca
 | `ObjectStorage__Endpoint`, `__PublicEndpoint`, `__AccessKey`, `__SecretKey`, `__Bucket`, `__UseSsl`, `__Region`, `__PresignedExpiryMinutes`, `__CreateBucketIfMissing` | credenciales en prod | `PublicEndpoint` = host con el que se firman las URLs (vacio = `Endpoint`). |
 | `BackgroundJobs__DispatcherEnabled` (true), `__PollSeconds` (60), `__OperatorTenantId` | no | Sin `OperatorTenantId` nadie opera tareas desde la API. |
 | `BackgroundJobs__SessionPurge__DryRun` (true), `__RetentionDays` (30) | no | La purga de ejemplo solo cuenta hasta apagar `DryRun`. |
+| `BackgroundJobs__OrphanObjects__DryRun` (true), `__GraceHours` (24) | no | Purga de objetos del bucket sin fila en `StoredFile`; solo cuenta hasta apagar `DryRun`. Un objeto mas nuevo que `GraceHours` nunca se toca (puede ser una subida en curso). |
 | `ForwardedHeaders__Enabled`, `__KnownProxies`, `__KnownNetworks` | no | Encendido sin proxy/red declarados no arranca. |
 | `RateLimiting__AuthPerMinute` (10), `__UploadPerMinute` (30), `__GlobalPerMinute` (300), `RateLimiting__Enabled` | no | |
 | `Seq__ServerUrl`, `Serilog__MinimumLevel__Default`, `Observability__OtlpEndpoint` | no | Ver [Observability.md](Observability.md). |

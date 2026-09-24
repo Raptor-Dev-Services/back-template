@@ -70,6 +70,8 @@ builder.Services.AddObjectStorage(
 
 builder.Services.AddSingleton(
     builder.Configuration.GetSection(SessionPurgeOptions.SectionName).Get<SessionPurgeOptions>() ?? new SessionPurgeOptions());
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection(OrphanObjectPurgeOptions.SectionName).Get<OrphanObjectPurgeOptions>() ?? new OrphanObjectPurgeOptions());
 
 // Mediador de Common, SIN escaneo de ensamblados: cada modulo registra sus handlers.
 builder.Services.AddMediator();

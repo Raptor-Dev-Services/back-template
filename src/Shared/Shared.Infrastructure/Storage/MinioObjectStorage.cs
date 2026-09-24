@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Minio;
 using Minio.DataModel.Args;
 using Minio.Exceptions;
+using Shared.Kernel.BackgroundJobs;
 using Shared.Kernel.Errors;
 using Shared.Kernel.Storage;
 
@@ -103,6 +104,21 @@ public sealed class MinioObjectStorage : IObjectStorage
             throw new InvalidOperationException($"El bucket '{_options.Bucket}' no existe.");
     }
 
+    public async IAsyncEnumerable<StoredObjectInfo> ListAllAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var args = new ListObjectsArgs().WithBucket(_options.Bucket).WithRecursive(true);
+        await foreach (var item in _client.ListObjectsEnumAsync(args, cancellationToken))
+        {
+            if (item.IsDir)
+                continue;
+            // Sin fecha no se puede saber si esta dentro del margen de gracia: se reporta como "recien subido", que es
+            // el lado seguro (la purga no lo toca).
+            var lastModified = item.LastModifiedDateTime?.ToUniversalTime() ?? DateTime.UtcNow;
+            yield return new StoredObjectInfo(item.Key, DateTime.SpecifyKind(lastModified, DateTimeKind.Utc));
+        }
+    }
+
     internal IMinioClient Client => _client;
 
     private static void EnsureWellFormed(string objectKey)
@@ -155,6 +171,8 @@ public static class ObjectStorageServiceCollectionEx
         services.AddSingleton<IObjectStorage>(_ => new MinioObjectStorage(options));
         services.AddScoped<IStoredFileRegistry, EfStoredFileRegistry>();
         services.AddHostedService<ObjectStorageBootstrapService>();
+        // Conciliacion bucket contra registro (OrphanObjectPurgeOptions lo registra el Host desde BackgroundJobs:OrphanObjects).
+        services.AddScoped<IAutomatedTask, OrphanObjectPurgeTask>();
         return services;
     }
 }

@@ -47,6 +47,7 @@ services:
       Observability__OtlpEndpoint: "${Observability__OtlpEndpoint:-}"
       BackgroundJobs__OperatorTenantId: "${BackgroundJobs__OperatorTenantId:-}"
       BackgroundJobs__SessionPurge__DryRun: "${BackgroundJobs__SessionPurge__DryRun:-true}"
+      BackgroundJobs__OrphanObjects__DryRun: "${BackgroundJobs__OrphanObjects__DryRun:-true}"
       # --- SECRETOS (GitHub Secrets; nunca en archivo ni en la imagen) ---
       ConnectionStrings__DefaultConnection: ${ConnectionStrings__DefaultConnection:?falta secret ConnectionStrings__DefaultConnection}
       Jwt__Key: ${Jwt__Key:?falta secret Jwt__Key}
