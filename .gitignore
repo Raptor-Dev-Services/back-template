@@ -124,7 +124,9 @@ docker-compose.override.yml
 # ===========================
 # Claude Code
 # ===========================
-.claude/
+# .claude/ SE VERSIONA (agentes, skills y reglas del repo, instalados con /catalogo install).
+# Solo se ignora lo personal de cada quien.
+.claude/settings.local.json
 
 # ===========================
 # Secrets / env

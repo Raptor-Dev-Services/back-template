@@ -1,291 +1,82 @@
-# DB.md — Gestión de Base de Datos
+# Base de datos
 
-Guía de referencia para la capa de datos en este proyecto. Todo acceso a datos pasa por `AppDbContext` de `Shared/Database`.
+PostgreSQL 17 con EF Core 10 (Npgsql). Un **solo** `AppDbContext` (`Shared.Infrastructure/Persistence/AppDbContext.cs`)
+para todo el sistema; cada modulo le aporta sus tablas.
 
----
+## Dos roles
 
-## Cadena de acceso a datos
+| Rol | Para que | Privilegios |
+|---|---|---|
+| `backtemplate_owner` | migraciones y scripts de RLS | dueno del esquema (DDL) |
+| `backtemplate_app` | la API en ejecucion | `SELECT, INSERT, UPDATE` (sin `DELETE`), `NOBYPASSRLS` |
 
-```
-ConnectionStrings:MainDbConnection  (appsettings.json)
-    ↓
-AppDbContext                        (EF Core DbContext — Scoped)
-    ↓
-{Entidad}Repository                 (implementa interfaz de dominio — inyecta AppDbContext)
-    ↓
-Handler                             (lógica de negocio)
-```
+La API conecta **siempre** con el rol de la aplicacion (`ConnectionStrings__DefaultConnection`). `RlsRoleGuard`
+tumba el arranque si ese rol es superusuario o tiene `BYPASSRLS`: con uno asi las policies se ignoran sin ningun
+sintoma. Sin `DELETE`, un borrado fisico falla en el motor aunque alguien lo escriba (`000_app_role_grants.sql`).
 
-**Regla absoluta:** los repositorios son la única capa que toca `AppDbContext`. Cero acceso a datos en handlers o servicios de aplicación.
+## Convenciones que aplica el DbContext
 
----
+- **Esquema `public`**, tablas en singular y PascalCase (`UserProfile`, `AuditLog`).
+- **Entidades base** (`Shared.Kernel/Domain/TenantEntity.cs`): `TenantEntity` (lleva `TenantId`) y `GlobalEntity`.
+  Ambas traen `Id` (bigint identity), auditoria (`CreatedAtUtc`, `UpdatedAtUtc`, y en las de tenant el actor
+  `CreatedByUserId`/`UpdatedByUserId`/`DeletedByUserId`), soft delete (`IsDeleted`, `DeletedAtUtc`) y `Version`.
+- **Filtros globales con nombre** (`QueryFilterNames`): `tenant` (`TenantId == tenant actual`) y `soft_delete`.
+  Se ignoran por nombre, nunca todos a la vez sin querer: `IgnoreQueryFilters([QueryFilterNames.Tenant])`.
+- **Soft delete**: un `Remove` se convierte en marca; nunca hay `DELETE`.
+- **Auditoria** automatica en `SaveChanges`: fechas en UTC y actor desde `ICurrentUser`. El `TenantId` de una fila
+  nueva se sella desde el contexto y es inmutable despues.
+- **UTC**: toda fecha es `timestamp with time zone`; Npgsql exige `Kind=Utc`.
+- **Concurrencia optimista**: `Version` se mapea a la columna de sistema `xmin`; perder la carrera es 409.
+- **Unicidad**: `23505` se traduce a 409 legible. Los indices unicos de tablas con soft delete se filtran con
+  `IsDeleted = false`.
 
-## AppDbContext
+## Migraciones
 
-Vive en `Shared/Database/AppDbContext.cs`. Contiene todos los `DbSet<T>` del sistema y aplica global query filters de multi-tenancy.
+- Viven en `src/Shared/Shared.Infrastructure/Persistence/Migrations/` (hoy una sola: `InitialCreate`).
+- `dotnet ef` usa `Host.Api/Persistence/AppDbContextFactory.cs`, que enumera los modulos con tablas
+  (`Modules`) y prefiere `ConnectionStrings__Migrations` (rol dueno). La version de `dotnet-ef` la fija
+  `dotnet-tools.json`.
+- **Nunca corren al arrancar la API.** En desarrollo: `scripts/dev-db.sh`. En produccion: el pipeline aplica el
+  script idempotente que viaja en la imagen (ver [Deployment.md](Deployment.md)).
 
-```csharp
-public sealed class AppDbContext : DbContext
-{
-    private readonly ITenantContextAccessor _tenantAccessor;
-
-    public DbSet<Tenant>         Tenants       { get; set; } = null!;
-    public DbSet<UserCredential> Credentials   { get; set; } = null!;
-    public DbSet<RefreshToken>   RefreshTokens { get; set; } = null!;
-    public DbSet<UserProfile>    UserProfiles  { get; set; } = null!;
-
-    public AppDbContext(DbContextOptions<AppDbContext> options, ITenantContextAccessor tenantAccessor)
-        : base(options) { _tenantAccessor = tenantAccessor; }
-
-    private long CurrentTenantId =>
-        long.TryParse(_tenantAccessor.Current?.TenantId, out var id) ? id : 0L;
-
-    protected override void OnModelCreating(ModelBuilder mb)
-    {
-        mb.HasDefaultSchema("dbo");
-        mb.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
-        mb.Entity<UserCredential>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
-        mb.Entity<UserProfile>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
-    }
-}
+```sh
+# nueva migracion
+dotnet tool restore
+dotnet ef migrations add NombreDelCambio -p src/Shared/Shared.Infrastructure -s src/Host/Host.Api -o Persistence/Migrations
 ```
 
-Registro en `Shared.Database/ServiceCollectionEx.cs`:
+Escribirlas **expand/contract**: una columna nueva nace nullable o con default, y se borra lo viejo en un release
+posterior. El rollback del pipeline no revierte el esquema.
 
-```csharp
-public static IServiceCollection AddMainDatabase(this IServiceCollection services, IConfiguration configuration)
-{
-    services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql(configuration.GetConnectionString("MainDbConnection")));
-    services.AddHostedService<DatabaseInitializationService>();
-    return services;
-}
+## Row-Level Security
+
+Segunda barrera de aislamiento, en el motor (`Persistence/Sql/001_enable_rls.sql`, idempotente). Detalle en
+[MultiTenancy.md](MultiTenancy.md). Toda tabla nueva con `TenantId` necesita su bloque ahi o una exclusion
+justificada; si no, falla `RlsIsolationTests` y el guardia del deploy.
+
+## Desarrollo local
+
+```sh
+./scripts/dev-db.sh all      # provision (roles + base + grants) -> migrate -> rls
+./scripts/dev-db.sh status   # roles, migraciones aplicadas, tablas con RLS
+./scripts/dev-db.sh reset    # BORRA solo la base backtemplate y corre all
 ```
 
-Llamado en `Host.Api/Program.cs`:
+Corre `psql` dentro del contenedor del devstack (`PG_CONTAINER`, por omision `devstack-postgres`). Ver
+`docs/DEV-STACK.md`.
 
-```csharp
-builder.Services.AddMainDatabase(builder.Configuration);
-```
+## Tablas actuales
 
----
+| Tabla | Modulo | Tenant | RLS |
+|---|---|---|---|
+| `Tenant` | Tenancy | global | - |
+| `UserProfile` | Users | si | si |
+| `UserCredential`, `RefreshToken`, `PasswordSetupToken`, `TwoFactorRecoveryCode` | Authentication | si | excluidas (se leen antes de conocer el tenant) |
+| `Permission` | Authentication | global | - |
+| `Role`, `RolePermission`, `UserRole` | Authentication | si | excluidas (RbacRepository re-acota el tenant a mano) |
+| `AuditLog` | Shared.Infrastructure | si | si |
+| `StoredFile` | Shared.Infrastructure | si | si |
+| `AutomatedTaskDefinition`, `AutomatedTaskRun` | Shared.Infrastructure | global | - |
 
-## EntityTypeConfigurations
-
-Cada entidad tiene su archivo `IEntityTypeConfiguration<T>` en `Shared/Database/EntityTypeConfigurations/`. EF Core los descubre automáticamente vía `ApplyConfigurationsFromAssembly`.
-
-**Convenciones:**
-- Tabla en `snake_case` (ej. `user_profiles`), esquema `dbo`.
-- Columnas en `PascalCase` (convención EF Core por defecto).
-- PKs con `UseIdentityByDefaultColumn()`.
-- UUIDs con `HasDefaultValueSql("gen_random_uuid()")`.
-- Timestamps con `HasDefaultValueSql("timezone('utc', now())")` y `HasColumnType("timestamp(0)")`.
-- Índices únicos y FKs declarados aquí.
-
-```csharp
-public sealed class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
-{
-    public void Configure(EntityTypeBuilder<UserProfile> b)
-    {
-        b.ToTable("user_profiles");
-        b.HasKey(e => e.Id);
-        b.Property(e => e.Id).UseIdentityByDefaultColumn();
-        b.Property(e => e.PublicId).HasDefaultValueSql("gen_random_uuid()");
-        b.Property(e => e.FullName).HasMaxLength(200).IsRequired();
-        b.Property(e => e.CreatedAtUtc)
-            .HasColumnType("timestamp(0)")
-            .HasDefaultValueSql("timezone('utc', now())");
-        b.HasIndex(e => e.PublicId).IsUnique();
-        b.HasOne<Tenant>().WithMany()
-            .HasForeignKey(e => e.TenantId)
-            .OnDelete(DeleteBehavior.Restrict);
-    }
-}
-```
-
----
-
-## Patrones de repositorio con EF Core
-
-### Lectura
-
-```csharp
-// Único registro — AsNoTracking() para lecturas que no van a modificarse
-public async Task<UserProfile?> GetByPublicIdAsync(Guid publicId, CancellationToken ct = default) =>
-    await _db.UserProfiles
-        .AsNoTracking()
-        .FirstOrDefaultAsync(e => e.PublicId == publicId && e.IsActive, ct);
-
-// Lista paginada
-public async Task<List<UserProfile>> GetAllAsync(int page, int pageSize, CancellationToken ct = default) =>
-    await _db.UserProfiles
-        .AsNoTracking()
-        .OrderByDescending(e => e.CreatedAtUtc)
-        .Skip((page - 1) * pageSize)
-        .Take(pageSize)
-        .ToListAsync(ct);
-```
-
-### Insertar
-
-Entidades con propiedades `init` se insertan con object initializer — EF Core materializa sin necesidad de setters:
-
-```csharp
-public async Task<long> InsertAsync(
-    Guid publicId, long tenantId, string fullName, CancellationToken ct = default)
-{
-    var entity = new UserProfile
-    {
-        PublicId  = publicId,
-        TenantId  = tenantId,
-        FullName  = fullName,
-        IsActive  = true
-    };
-    _db.UserProfiles.Add(entity);
-    await _db.SaveChangesAsync(ct);
-    return entity.Id;
-}
-```
-
-### Actualizar (propiedades `init`)
-
-`ExecuteUpdateAsync` evita cargar la entidad y funciona con `init` porque opera a nivel SQL:
-
-```csharp
-public async Task UpdateAsync(Guid publicId, string fullName, CancellationToken ct = default) =>
-    await _db.UserProfiles
-        .Where(e => e.PublicId == publicId && e.IsActive)
-        .ExecuteUpdateAsync(s => s
-            .SetProperty(e => e.FullName, fullName)
-            .SetProperty(e => e.UpdatedAtUtc, DateTime.UtcNow),
-        ct);
-```
-
-### Soft delete
-
-```csharp
-public async Task DisableAsync(Guid publicId, CancellationToken ct = default) =>
-    await _db.UserProfiles
-        .Where(e => e.PublicId == publicId)
-        .ExecuteUpdateAsync(s => s
-            .SetProperty(e => e.IsActive, false)
-            .SetProperty(e => e.UpdatedAtUtc, DateTime.UtcNow),
-        ct);
-```
-
-### IgnoreQueryFilters — auth sin tenant
-
-Login y refresh no tienen tenant en el JWT aún. El repositorio de credenciales usa `IgnoreQueryFilters()`:
-
-```csharp
-public async Task<UserCredential?> GetForLoginAsync(string email, CancellationToken ct = default) =>
-    await _db.Credentials
-        .IgnoreQueryFilters()
-        .AsNoTracking()
-        .FirstOrDefaultAsync(e => e.Email == email && e.IsActive, ct);
-```
-
----
-
-## Esquema de BD actual
-
-| Tabla | Módulo dueño | Descripción |
-|-------|-------------|-------------|
-| `dbo.tenants` | Tenancy | Empresas SaaS |
-| `dbo.credentials` | Authentication | Login (Email, PasswordHash, Role, TenantId) |
-| `dbo.user_profiles` | Users | Datos de perfil (PublicId, FullName, TenantId) |
-| `dbo.refresh_tokens` | Authentication | Tokens JWT con FK a credentials |
-
-> **Separación importante:** `dbo.credentials` es propiedad del módulo `Authentication`. `dbo.user_profiles` es propiedad del módulo `Users`. La relación entre ellas se maneja por Integration Events, no por FK directa.
-
----
-
-## Agregar una entidad nueva
-
-1. Crear la entidad en `{Modulo}.Domain/Entities/`.
-2. Crear `{Entidad}Configuration.cs` en `Shared/Database/EntityTypeConfigurations/`.
-3. Agregar `DbSet<{Entidad}> {Entidades} { get; set; } = null!;` en `AppDbContext`.
-4. Si la entidad necesita filtro de tenant, agregar `HasQueryFilter` en `OnModelCreating`.
-5. La tabla se crea automáticamente al reiniciar la API (`EnsureCreatedAsync`).
-
-> **Advertencia:** `EnsureCreated` no ejecuta migraciones. Si la tabla ya existe con un esquema diferente, no la altera. Para cambios de esquema en producción usar `dotnet ef migrations` o scripts SQL manuales.
-
----
-
-## Inicialización del esquema
-
-`DatabaseInitializationService` (en `Shared.Database/ServiceCollectionEx.cs`) es un `IHostedService` que:
-1. Crea un scope DI al iniciar.
-2. Establece un `TenantContext("0")` dummy para que los filtros de EF Core no fallen.
-3. Llama `db.Database.EnsureCreatedAsync()` — crea las tablas según las configuraciones.
-
-Esto reemplaza el antiguo sistema de archivos `.sql` + `SchemaMigrationHostedService`.
-
----
-
-## Transacciones
-
-Para operaciones que deben ser atómicas entre múltiples `DbSet`:
-
-```csharp
-public async Task OperacionAtomicaAsync(CancellationToken ct = default)
-{
-    await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-    try
-    {
-        _db.Credentials.Add(credential);
-        await _db.SaveChangesAsync(ct);
-
-        _db.UserProfiles.Add(profile);
-        await _db.SaveChangesAsync(ct);
-
-        await transaction.CommitAsync(ct);
-    }
-    catch
-    {
-        await transaction.RollbackAsync(ct);
-        throw;
-    }
-}
-```
-
----
-
-## Connection String
-
-`appsettings.json`:
-
-```json
-"ConnectionStrings": {
-  "MainDbConnection": "Host=localhost;Port=5432;Database=back_template;Username=postgres;Password=postgres"
-}
-```
-
-`appsettings.Local.json` (dev diario):
-
-```json
-"ConnectionStrings": {
-  "MainDbConnection": "Host=localhost;Port=5432;Database=back_template_dev;Username=postgres;Password=postgres;SSL Mode=Disable"
-}
-```
-
----
-
-## Diferencias PostgreSQL útiles
-
-| Patrón | SQL Server | PostgreSQL / EF Core Npgsql |
-|--------|-----------|----------------------------|
-| Identidad | `IDENTITY(1,1)` | `UseIdentityByDefaultColumn()` |
-| UUID default | — | `HasDefaultValueSql("gen_random_uuid()")` |
-| Fecha UTC | `GETUTCDATE()` | `HasDefaultValueSql("timezone('utc', now())")` |
-| Tipo timestamp sin ms | `datetime2(0)` | `HasColumnType("timestamp(0)")` |
-| Exists | `IF EXISTS (...)` | `SELECT EXISTS (...)` |
-
----
-
-## DI — Lifetimes
-
-| Clase | Lifetime |
-|-------|---------|
-| `AppDbContext` | Scoped (registrado por `AddDbContext`) |
-| `{Entidad}Repository` | Scoped |
+Acceso a datos solo desde repositorios en `Infrastructure`. El unico SQL crudo es el reclamo atomico de tareas
+(`AutomatedTaskRepository`, `FromSqlInterpolated`, parametrizado); nunca se concatena SQL.

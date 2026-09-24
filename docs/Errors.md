@@ -1,225 +1,60 @@
-# Errors.md — Manejo de Errores, Problem Details y Soft Delete
+# Errores y envelope
 
----
+## El envelope unico
 
-## Estrategia de errores
-
-Dos mecanismos distintos para dos tipos de error distintos:
-
-| Tipo | Mecanismo | Cuándo |
-|------|-----------|--------|
-| Fallo de negocio esperado | Result Pattern (`IFailure`) | Usuario no encontrado, email duplicado, validación |
-| Error técnico inesperado | Excepción → Global Handler | NullRef, DB caída, bug, timeout |
-
-```
-Request
-    ↓
-Handler → return new XxxNotFoundFailure()     ← fallo de negocio: valor de retorno
-Handler → throws NpgsqlException              ← error técnico: burbujea
-    ↓
-UseCoreProblemDetails() / GlobalExceptionHandler  ← captura, loguea, devuelve 500
-    ↓
-ProblemDetails JSON                           ← respuesta estándar
-```
-
----
-
-## Problem Details — RFC 7807
+Toda respuesta de la API, exito o fallo, tiene la forma de `ResultViewModel<T>` de Common:
 
 ```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
-  "title": "Not Found",
-  "status": 404,
-  "detail": "Perfil de usuario no encontrado.",
-  "instance": "/api/users/abc-123",
-  "traceId": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-}
+{ "data": { ... }, "isSuccess": true, "message": null, "utcTimeStamp": "2026-09-24T17:00:00Z" }
 ```
 
-### `UseCoreProblemDetails()` — ya está en Program.cs
+Los endpoints lo llenan via su presenter. Lo que no pasa por un presenter (excepciones, modelo invalido, 429 del
+limitador, 403 del guard de tenant suspendido, 401/403/404 sin cuerpo) lo arma `Shared.Web/Errors/ApiEnvelope.cs`
+con el **mismo tipo**, para que el cliente conozca un solo formato.
 
-`Host.Api/Program.cs` tiene `app.UseCoreProblemDetails()` de `Common.Web`. Este middleware convierte las excepciones no manejadas en ProblemDetails automáticamente:
+## Dos vias, una tabla
 
-| Excepción | Código HTTP |
-|-----------|-------------|
-| `BusinessRuleException` | 400 |
-| Cualquier otra excepción | 500 |
+Un caso de uso falla **devolviendo** un response con una marca, o **lanzando** una excepcion de negocio. La tabla
+unica de status es `Shared.Web/Errors/FailureStatusCodes.cs`:
 
----
+| Status | Marca del response | Excepcion (`Shared.Kernel/Errors/BusinessException.cs`) |
+|---|---|---|
+| 400 | `IBadRequestFailure` (y el modelo malformado) | `BadRequestException` |
+| 401 | `IUnauthorizedFailure` | `UnauthorizedException` |
+| 403 | `IForbiddenFailure` | `ForbiddenException` |
+| 404 | `INotFoundFailure` | `NotFoundException` |
+| 409 | `IConflictFailure` | `ConflictException` |
+| 422 | `IValidationFailure` | `ValidationException` y cualquier `BusinessRuleException` de Common |
+| 400 | un `IFailure` sin marca (conviene marcarlo) | - |
+| 500 | - | cualquier otra excepcion |
 
-## Global Exception Handler — `IExceptionHandler`
+Las marcas 400/401/403 estan en `Shared.Kernel/Results/FailureKinds.cs`; las de 404/409/422 vienen de
+`Common.Results`. Todas las excepciones de negocio derivan de `BusinessRuleException` de Common.
 
-Para centralizar el manejo de excepciones reemplazando el `try/catch` en cada controller.
+## Quien traduce
 
-Ubicación: `{Modulo}.Presentation/` o `Host.Api/Middleware/GlobalExceptionHandler.cs`
+- `BusinessExceptionFilter` (filtro MVC global): una excepcion de negocio sale con su status y su mensaje. Una
+  peticion cancelada por el cliente se registra como 499 y no se escribe nada; si la respuesta ya empezo, no se toca.
+- `EnvelopeExceptionHandler` (`IExceptionHandler`, via `UseApiErrorHandling`): lo que se escapa del MVC. Una
+  excepcion inesperada responde **500 con mensaje generico**; el detalle (tipo, stack, inner) va al log, nunca al
+  cliente.
+- Las paginas de estado vacias (401 del esquema JWT, 403 de una policy, 404 de ruta) reciben el envelope con el
+  mensaje generico de `ApiEnvelope.DefaultMessageFor`.
 
-```csharp
-public sealed class GlobalExceptionHandler : IExceptionHandler
-{
-    private readonly ILogger<GlobalExceptionHandler> _logger;
+**No** hay `try/catch` en controllers ni handlers para "traducir" errores: capturar para devolver
+`ex.Message` o el inner filtraria detalles internos. `ErrorEnvelopeTests` lo verifica con un controller de prueba
+que lanza (`BoomController`).
 
-    public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger)
-        => _logger = logger;
+## Errores que produce la persistencia
 
-    public async ValueTask<bool> TryHandleAsync(
-        HttpContext httpContext,
-        Exception   exception,
-        CancellationToken ct)
-    {
-        if (exception is OperationCanceledException)
-        {
-            httpContext.Response.StatusCode = 499;
-            return true;
-        }
+`AppDbContext` convierte, antes de que lleguen al cliente:
 
-        _logger.LogError(exception,
-            "Unhandled exception on {Method} {Path}",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+- violacion de indice unico (Postgres `23505`) -> `ConflictException` (409) con mensaje legible;
+- perder una carrera de concurrencia optimista (`xmin`) -> `ConflictException` (409);
+- insertar una fila de tenant sin tenant en contexto -> `InvalidOperationException` (500: es un bug, no un caso de
+  negocio).
 
-        var statusCode = exception switch
-        {
-            ArgumentException           => StatusCodes.Status400BadRequest,
-            UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
-            KeyNotFoundException        => StatusCodes.Status404NotFound,
-            InvalidOperationException   => StatusCodes.Status422UnprocessableEntity,
-            _                           => StatusCodes.Status500InternalServerError
-        };
+## Mensajes
 
-        var problemDetails = new ProblemDetails
-        {
-            Status   = statusCode,
-            Title    = GetTitle(statusCode),
-            Detail   = exception.Message,
-            Instance = httpContext.Request.Path,
-            Type     = $"https://httpstatuses.io/{statusCode}"
-        };
-
-        problemDetails.Extensions["traceId"] =
-            Activity.Current?.Id ?? httpContext.TraceIdentifier;
-
-        httpContext.Response.StatusCode  = statusCode;
-        httpContext.Response.ContentType = "application/problem+json";
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, ct);
-        return true;
-    }
-
-    private static string GetTitle(int statusCode) => statusCode switch
-    {
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        403 => "Forbidden",
-        404 => "Not Found",
-        422 => "Unprocessable Entity",
-        _   => "Internal Server Error"
-    };
-}
-```
-
-### Registro
-
-```csharp
-// Presentation/ServiceCollectionEx.cs (o Host.Api/Program.cs)
-services.AddExceptionHandler<GlobalExceptionHandler>();
-services.AddProblemDetails();
-
-// Host.Api/Program.cs — antes de UseAuthentication
-app.UseExceptionHandler();
-```
-
----
-
-## Result Pattern vs Excepciones — regla de decisión
-
-```
-¿El llamador puede anticipar este resultado y manejarlo?
-    SÍ → Result Pattern (IFailure)
-    NO → Excepción (fluye al global handler)
-
-Ejemplos:
-    "Perfil no encontrado"          → INotFoundFailure    (esperado)
-    "Email ya registrado"           → IConflictFailure    (esperado)
-    "Credenciales inválidas"        → IFailure            (esperado)
-    "DB desconectada"               → NpgsqlException     (inesperado)
-    "NullReferenceException"        → Exception           (bug)
-```
-
-```csharp
-// ✓ Result para flujo de negocio
-public async Task<LoginResponse> Handle(LoginRequest req, CancellationToken ct)
-{
-    var credential = await _credentials.GetForLoginAsync(req.Email, ct);
-    if (credential is null || !_hasher.Verify(req.Password, credential.PasswordHash) || !credential.IsActive)
-        return new LoginInvalidCredentialsFailure("Credenciales inválidas.");
-
-    var token = _jwt.GenerateAccessToken(credential.PublicId, credential.Email, credential.Role, credential.TenantId);
-    return new LoginSuccess(new TokenDto(token, /* ... */));
-}
-
-// ✓ Excepción para infraestructura — dejar que suba
-await _db.UserProfiles.ToListAsync(ct);  // NpgsqlException si DB caída → 500 automático
-```
-
----
-
-## Soft Delete
-
-Borrado lógico: en lugar de eliminar la fila, se marca con `DeletedAt`.
-
-### EntityTypeConfiguration con filtro de soft delete
-
-Agregar `DeletedAt` a la entidad y al `{Entidad}Configuration`:
-
-```csharp
-// En UserProfileConfiguration.cs
-builder.Property(p => p.DeletedAt).HasColumnType("timestamp(0)");
-builder.HasIndex(p => p.PublicId).HasFilter("deleted_at IS NULL");
-
-// Query filter global — solo registros no borrados y del tenant correcto
-builder.HasQueryFilter(p => p.DeletedAt == null && p.TenantId == currentTenantId);
-```
-
-### EF Core — repositorio con soft delete
-
-```csharp
-public async Task<UserProfile?> GetByPublicIdAsync(Guid publicId, CancellationToken ct = default) =>
-    await _db.UserProfiles
-        .AsNoTracking()
-        .FirstOrDefaultAsync(p => p.PublicId == publicId, ct);
-        // El query filter ya filtra por TenantId y DeletedAt == null
-
-public async Task SoftDeleteAsync(Guid publicId, CancellationToken ct = default) =>
-    await _db.UserProfiles
-        .Where(p => p.PublicId == publicId)
-        .ExecuteUpdateAsync(s => s
-            .SetProperty(p => p.DeletedAt,    DateTime.UtcNow)
-            .SetProperty(p => p.UpdatedAtUtc, DateTime.UtcNow), ct);
-```
-
-### Handler de disable/soft-delete
-
-```csharp
-public async Task<DisableUserProfileResponse> Handle(DisableUserProfileRequest request, CancellationToken ct)
-{
-    var profile = await _profiles.GetByPublicIdAsync(request.PublicId, ct);
-    if (profile is null)
-        return new DisableUserProfileNotFoundFailure("Perfil no encontrado.");
-
-    await _profiles.SoftDeleteAsync(request.PublicId, ct);
-    return new DisableUserProfileSuccess();
-}
-```
-
----
-
-## BusinessRuleException
-
-Para violaciones de reglas de negocio que deben retornar HTTP 400:
-
-```csharp
-// En un handler o en la entidad de dominio
-throw new BusinessRuleException("El stock no puede ser negativo.");
-```
-
-El middleware `UseCoreProblemDetails()` lo captura automáticamente y retorna ProblemDetails 400.
+Se escriben para quien usa la aplicacion: que paso y que puede hacer. Nunca nombres de tabla, SQL, stack ni si una
+cuenta existe (login y "olvide mi contrasena" responden igual para un correo inexistente).

@@ -1,0 +1,80 @@
+# Peticiones de ejemplo (REST Client de VS Code / cliente HTTP de Rider).
+# Flujo: bootstrap -> login -> copiar accessToken/refreshToken a las variables -> el resto.
+# Los valores de abajo son de DESARROLLO; el secreto de bootstrap es el de tu .env.
+
+@base = http://localhost:5060
+@bootstrapSecret = <BOOTSTRAP_SECRET>
+@accessToken = <ACCESS_TOKEN>
+@refreshToken = <REFRESH_TOKEN>
+
+### Salud (nombres de check: postgres, object-storage)
+GET {{base}}/health/ready
+
+### Primer tenant y su administrador
+POST {{base}}/api/v1/bootstrap/tenant
+Content-Type: application/json
+X-Bootstrap-Secret: {{bootstrapSecret}}
+
+{
+  "tenantName": "Acme",
+  "tenantSlug": "acme",
+  "adminEmail": "admin@acme.test",
+  "adminPassword": "Una-Contrasena-Larga-1",
+  "adminFullName": "Admin Acme"
+}
+
+### Login
+POST {{base}}/api/v1/auth/login
+Content-Type: application/json
+
+{ "email": "admin@acme.test", "password": "Una-Contrasena-Larga-1" }
+
+### Refresh (rota el token; reusar el viejo revoca la familia)
+POST {{base}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+### Logout
+POST {{base}}/api/v1/auth/logout
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+### Mi cuenta (roles y permisos efectivos)
+GET {{base}}/api/v1/account/me
+Authorization: Bearer {{accessToken}}
+
+### Usuarios del tenant (paginado: items, page, pageSize, totalCount, totalPages)
+GET {{base}}/api/v1/users?page=1&pageSize=20
+Authorization: Bearer {{accessToken}}
+
+### Invitar (el enlace llega a Mailpit: http://localhost:8025)
+POST {{base}}/api/v1/accounts
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "email": "miembro@acme.test", "fullName": "Miembro" }
+
+### Roles
+GET {{base}}/api/v1/roles
+Authorization: Bearer {{accessToken}}
+
+### Bitacora de acciones
+GET {{base}}/api/v1/audit-log?pageSize=50
+Authorization: Bearer {{accessToken}}
+
+### Tareas programadas (requiere BackgroundJobs__OperatorTenantId = tu tenant)
+GET {{base}}/api/v1/automated-tasks
+Authorization: Bearer {{accessToken}}
+
+### Ejecutar ahora la purga (en seco por omision)
+POST {{base}}/api/v1/automated-tasks/auth.purge-expired-sessions/run
+Authorization: Bearer {{accessToken}}
+
+### URLs de varios archivos
+POST {{base}}/api/v1/files/urls
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "objectKeys": ["1/2026/09/ejemplo.png"] }

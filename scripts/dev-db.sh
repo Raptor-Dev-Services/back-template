@@ -16,7 +16,7 @@
 # Ver docs/DEV-STACK.md.
 #
 # Variables (todas con valor por omision para el devstack):
-#   PG_CONTAINER  contenedor de Postgres        (devstack-postgres; en modo standalone: backtemplate-postgres)
+#   PG_CONTAINER  contenedor de Postgres        (devstack-postgres; en modo standalone: back-template-postgres)
 #   PG_HOST/PG_PORT  donde lo alcanza `dotnet ef` desde esta maquina (localhost / 5432)
 #
 # Ninguna credencial de aqui es un secreto: son las de desarrollo local, versionadas igual que el
@@ -42,7 +42,7 @@ require_container() {
   if ! docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
     echo "No esta corriendo el contenedor '$PG_CONTAINER'." >&2
     echo "Levanta el devstack (docker compose -f <devstack>/compose-dev.yaml up -d) o, sin devstack," >&2
-    echo "  docker compose -f compose-dev.yaml --profile standalone up -d  y  PG_CONTAINER=backtemplate-postgres" >&2
+    echo "  docker compose -f compose-dev.yaml --profile standalone up -d  y  PG_CONTAINER=back-template-postgres" >&2
     exit 1
   fi
 }

@@ -1,200 +1,58 @@
-# Multi-tenancy — cómo fluye el TenantId
+# Multi-tenancy
 
-El sistema es multi-tenant: cada registro en la base de datos pertenece a un tenant específico y **ningún tenant puede ver ni modificar datos de otro**. Esto se garantiza en cada capa, con EF Core como última línea de defensa a nivel de base de datos.
+Tenant = la organizacion cliente. Un tenant no puede leer ni escribir datos de otro, y eso se garantiza con **dos
+barreras independientes**.
 
----
+## De donde sale el tenant
 
-## El flujo completo
+**Solo** del claim `tenant_id` del JWT ya validado. Nunca del body, del query string ni de un header que controle
+el cliente. `Shared.Web/Tenancy/TenantContextMiddleware.cs` (despues de `UseAuthentication`) lo publica en el
+`ITenantContextAccessor` de Common y lo limpia al terminar la peticion. Una peticion anonima no tiene tenant.
 
-```
-Usuario hace login → recibe JWT con claim "tenant_id"
-        ↓
-Request HTTP con header:  Authorization: Bearer <token>
-        ↓
-UseAuthentication         → verifica el JWT, llena HttpContext.User con los claims
-        ↓
-UseAuthorization          → verifica [Authorize], devuelve 401/403 si falla
-        ↓
-TenantClaimsMiddleware    → lee "tenant_id" de HttpContext.User y lo guarda en ITenantContextAccessor
-        ↓
-Controller                → lee CurrentTenantId desde User.FindFirstValue("tenant_id")
-        ↓
-Request                   → TenantId viaja como parámetro del record
-        ↓
-Handler                   → recibe TenantId del request, lo pasa al repositorio (si aplica)
-        ↓
-AppDbContext              → global query filter aplica WHERE TenantId = @currentTenantId automáticamente
-        ↓
-PostgreSQL                → solo devuelve filas de ese tenant
-```
+## Barrera 1: filtro de EF
 
----
+Toda entidad `TenantEntity` recibe el filtro con nombre `tenant`. Los repositorios **no** repiten
+`WHERE TenantId = ...`. Solo la autenticacion lo ignora (`IgnoreQueryFilters([QueryFilterNames.Tenant])`), porque
+login, refresh y restablecimiento buscan por correo, id o hash antes de conocer el tenant.
 
-## Paso 1 — El JWT y sus claims
+## Barrera 2: RLS en Postgres
 
-Al hacer login exitoso, `LoginHandler` genera un JWT con los siguientes claims:
+`TenantRlsConnectionInterceptor` fija el GUC `app.tenant_id` en cada apertura de conexion (tambien las del pool)
+con `set_config` **parametrizado**. Sin tenant lo deja vacio y ninguna policy deja pasar filas (fail-closed).
+`001_enable_rls.sql` hace `ENABLE` + `FORCE ROW LEVEL SECURITY` y una policy `USING`/`WITH CHECK` sobre
+`"TenantId" = NULLIF(current_setting('app.tenant_id', true), '')::bigint` para `UserProfile`, `AuditLog` y
+`StoredFile`.
 
-```csharp
-// Authentication.Infrastructure/Services/JwtTokenService.cs
-_jwt.GenerateAccessToken(
-    credential.PublicId,   // "sub" → identificador del usuario
-    credential.Email,       // "email"
-    credential.Role,        // "role" → "Admin", "Manager", "User"
-    credential.TenantId     // "tenant_id"
-);
-```
+Asi, aunque alguien escriba `IgnoreQueryFilters()`, SQL crudo o un `ExecuteUpdate` mal acotado, el motor no
+devuelve ni acepta filas de otro tenant. Solo aplica a un rol sin `BYPASSRLS`, y `RlsRoleGuard` lo garantiza.
 
-El JWT decodificado se ve así:
-```json
-{
-  "sub":       "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "email":     "usuario@empresa.com",
-  "role":      "Admin",
-  "tenant_id": "1",
-  "exp":       1735689600,
-  "iss":       "back-template",
-  "aud":       "back-template-clients"
-}
-```
+**Excluidas a proposito** (mismo listado en el encabezado del script, en `RlsIsolationTests.ExcludedOnPurpose` y
+en el guardia de `deploy.yml`; `RlsExclusionDriftTests` falla si divergen): `UserCredential`, `RefreshToken`,
+`PasswordSetupToken`, `TwoFactorRecoveryCode`, `Role`, `RolePermission`, `UserRole`.
 
-**Nota:** `tenant_id` viaja como string en el JWT (los claims son siempre strings). Se parsea a `long` en el controller y en `AppDbContext`.
+## Acciones de sistema con tenant explicito
 
----
+Cuando la accion no llega con el tenant en el token (el bootstrap crea el tenant en la misma peticion), `ITenantScope.Enter`
+(`EfUnitOfWork.cs`) fija el tenant en el accessor y sincroniza el GUC de la conexion abierta, dentro de un bloque
+acotado.
 
-## Paso 2 — TenantClaimsMiddleware
+## Tenant suspendido
 
-```csharp
-// Host.Api/Middleware/TenantClaimsMiddleware.cs
-public sealed class TenantClaimsMiddleware
-{
-    private readonly RequestDelegate _next;
-    public TenantClaimsMiddleware(RequestDelegate next) => _next = next;
+`Tenant.Status` es `Active` o `Suspended`. Login, 2FA y refresh rechazan un tenant inactivo, pero un access token ya
+emitido seguiria valido hasta vencer. `TenantStatusGuardMiddleware` (despues de `TenantContextMiddleware`) corta con
+403 y el envelope toda peticion autenticada de un tenant suspendido o borrado. El estado lo da
+`ITenantStatusProvider` (Tenancy.Infrastructure) con cache de 30 s por replica.
 
-    public async Task InvokeAsync(HttpContext context, ITenantContextAccessor tenantCtx)
-    {
-        if (context.User.Identity?.IsAuthenticated == true)
-        {
-            var tenantId = context.User.FindFirst("tenant_id")?.Value;
-            if (!string.IsNullOrEmpty(tenantId))
-                tenantCtx.Current = new TenantContext(tenantId);
-        }
+## Lo que se verifica
 
-        await _next(context);
-    }
-}
-```
+- `RlsIsolationTests`: con el tenant fijado solo se ven sus filas, sin tenant nada, no se escribe una fila ajena,
+  `IgnoreQueryFilters` cruza EF pero no RLS, una conexion reciclada no arrastra el tenant anterior, y toda tabla con
+  `TenantId` tiene RLS o esta en la lista de exclusiones.
+- `CrossTenantIsolationTests`: por HTTP, un tenant no lista, no lee ni confirma la existencia de datos de otro
+  (404, no 403).
+- `SuspendedTenantTests`: token vigente de un tenant suspendido -> 403.
 
-Este middleware está en el pipeline después de `UseAuthentication` y `UseAuthorization`. En ese punto el JWT ya fue verificado y `HttpContext.User` tiene todos los claims.
+## Plataforma frente a tenant
 
-`ITenantContextAccessor` (Singleton) sirve a dos propósitos:
-1. **Enriquecer logs y trazas** con `tenant_id` en Serilog y OpenTelemetry.
-2. **Alimentar el global query filter** de `AppDbContext` — el DbContext (Scoped) lee `_tenantAccessor.Current?.TenantId` al construir cada query.
-
----
-
-## Paso 3 — Leer TenantId en el Controller
-
-Cada controller que necesite el tenant define esta propiedad:
-
-```csharp
-private long CurrentTenantId =>
-    long.TryParse(User.FindFirstValue("tenant_id"), out var id) ? id : 0;
-```
-
-`User` es la propiedad de `ControllerBase` que apunta a `HttpContext.User` — ya tiene los claims porque `UseAuthentication` los llenó.
-
-```csharp
-// Uso típico en un endpoint
-[HttpGet("{id:guid}")]
-public async Task<IActionResult> GetById(Guid id, CancellationToken ct = default)
-{
-    _ = await Mediator.Send(new GetUserProfileRequest(id, CurrentTenantId), ct);
-    return _viewModel.IsSuccess ? Ok(_viewModel) : StatusCode(500, _viewModel);
-}
-```
-
----
-
-## Paso 4 — El TenantId viaja en el Request
-
-El controller construye el Request incluyendo `CurrentTenantId`. El Request es un record inmutable — el TenantId se captura en el momento de la construcción y no puede cambiar.
-
-```csharp
-public sealed record GetUserProfileRequest(Guid PublicId, long TenantId)
-    : IRequest<GetUserProfileResponse>;
-```
-
-El handler recibe el TenantId como parte del request. Nunca necesita acceder a `HttpContext` — no sabe que existe HTTP.
-
----
-
-## Paso 5 — El Handler usa TenantId (si aplica)
-
-```csharp
-public async Task<GetUserProfileResponse> Handle(
-    GetUserProfileRequest request, CancellationToken cancellationToken)
-{
-    var profile = await _profiles.GetByPublicIdAsync(
-        request.PublicId,
-        cancellationToken);   // ← TenantId NO se pasa explícitamente al repo
-
-    if (profile is null)
-        return new GetUserProfileNotFoundFailure("Perfil no encontrado.");
-
-    return new GetUserProfileSuccess(new UserProfileDto(profile.PublicId, profile.FullName, profile.IsActive));
-}
-```
-
-> El handler no necesita pasar el TenantId al repositorio porque el **global query filter de EF Core lo aplica automáticamente** a nivel de `AppDbContext`. El repositorio no recibe el tenant como parámetro.
-
----
-
-## Paso 6 — EF Core filtra automáticamente
-
-`AppDbContext.OnModelCreating` define el filtro global:
-
-```csharp
-mb.Entity<UserCredential>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
-mb.Entity<UserProfile>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
-```
-
-`CurrentTenantId` es una propiedad del DbContext que lee `_tenantAccessor.Current?.TenantId` en cada consulta:
-
-```csharp
-private long CurrentTenantId =>
-    long.TryParse(_tenantAccessor.Current?.TenantId, out var id) ? id : 0L;
-```
-
-Cualquier query sobre `UserProfile` o `UserCredential` recibirá automáticamente un `WHERE TenantId = @currentTenantId` — sin necesidad de agregarlo manualmente.
-
-**Regla crítica:** ninguna consulta retorna datos de múltiples tenants. El filtro global es la garantía de seguridad. Si un repositorio llama `IgnoreQueryFilters()` sin justificación, es un bug de seguridad.
-
----
-
-## Endpoints que no necesitan TenantId previo
-
-Solo `login` y `register` no necesitan TenantId previo — de hecho, son los que lo establecen. Están marcados con `[AllowAnonymous]` en `AuthController`.
-
-Los repositorios de credenciales usan `IgnoreQueryFilters()` porque al momento del login el `ITenantContextAccessor` no tiene tenant aún:
-
-```csharp
-// UserCredentialRepository.cs
-public async Task<UserCredential?> GetForLoginAsync(string email, CancellationToken ct = default) =>
-    await _db.Credentials
-        .IgnoreQueryFilters()   // ← sin tenant en el JWT aún
-        .AsNoTracking()
-        .FirstOrDefaultAsync(e => e.Email == email && e.IsActive, ct);
-```
-
----
-
-## Resumen rápido
-
-| Capa | Cómo obtiene el TenantId |
-|------|--------------------------|
-| JWT | El login lo pone como claim `"tenant_id"` |
-| `TenantClaimsMiddleware` | Lo extrae del claim y lo guarda en `ITenantContextAccessor` |
-| Controller | `User.FindFirstValue("tenant_id")` → `CurrentTenantId` |
-| Request | Parámetro del record (para lógica del handler) |
-| `AppDbContext` | Lee `_tenantAccessor.Current?.TenantId` en cada query |
-| PostgreSQL | Filtrado automático por EF Core global query filter |
+Hay cosas de TODA la plataforma, no de un tenant: las tareas programadas. Operarlas exige `tasks.manage` **y**
+pertenecer al tenant operador (`BackgroundJobs:OperatorTenantId`); sin configurarlo, nadie las opera desde la API.
