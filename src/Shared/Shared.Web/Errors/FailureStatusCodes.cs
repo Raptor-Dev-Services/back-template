@@ -12,12 +12,11 @@ namespace Shared.Web.Errors;
 /// "no mezclar criterios dentro de un mismo API").
 ///
 /// <list type="table">
-///   <item><term>400</term><description><see cref="IBadRequestFailure"/> / <see cref="BadRequestException"/> y el modelo malformado.</description></item>
+///   <item><term>400</term><description><see cref="IBadRequestFailure"/> / <see cref="BadRequestException"/>, <see cref="IValidationFailure"/> / <see cref="ValidationException"/>, cualquier <c>BusinessRuleException</c> de Common y el modelo malformado (ADR-0007).</description></item>
 ///   <item><term>401</term><description><see cref="IUnauthorizedFailure"/> / <see cref="UnauthorizedException"/>.</description></item>
 ///   <item><term>403</term><description><see cref="IForbiddenFailure"/> / <see cref="ForbiddenException"/>.</description></item>
 ///   <item><term>404</term><description><see cref="INotFoundFailure"/> / <see cref="NotFoundException"/>.</description></item>
 ///   <item><term>409</term><description><see cref="IConflictFailure"/> / <see cref="ConflictException"/>.</description></item>
-///   <item><term>422</term><description><see cref="IValidationFailure"/> / <see cref="ValidationException"/> y cualquier <c>BusinessRuleException</c> de Common.</description></item>
 /// </list>
 ///
 /// Un <see cref="IFailure"/> sin ninguna de esas marcas cae a 400: es un fallo de negocio, no un error del
@@ -32,7 +31,7 @@ public static class FailureStatusCodes
         IForbiddenFailure => StatusCodes.Status403Forbidden,
         INotFoundFailure => StatusCodes.Status404NotFound,
         IConflictFailure => StatusCodes.Status409Conflict,
-        IValidationFailure => StatusCodes.Status422UnprocessableEntity,
+        IValidationFailure => StatusCodes.Status400BadRequest,
         _ => StatusCodes.Status400BadRequest,
     };
 
@@ -47,8 +46,8 @@ public static class FailureStatusCodes
         ForbiddenException => StatusCodes.Status403Forbidden,
         NotFoundException => StatusCodes.Status404NotFound,
         ConflictException => StatusCodes.Status409Conflict,
-        ValidationException => StatusCodes.Status422UnprocessableEntity,
-        Common.Exceptions.BusinessRuleException => StatusCodes.Status422UnprocessableEntity,
+        ValidationException => StatusCodes.Status400BadRequest,
+        Common.Exceptions.BusinessRuleException => StatusCodes.Status400BadRequest,
         _ => null,
     };
 }

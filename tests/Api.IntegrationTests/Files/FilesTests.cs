@@ -75,11 +75,11 @@ public sealed class FilesTests(PostgresFixture pg)
         var client = await AdminClientAsync();
 
         var spoofed = await UploadAsync(client, "<html><script>alert(1)</script>"u8.ToArray(), "image/png");
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, spoofed.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, spoofed.Status);
         Assert.False(spoofed.IsSuccess);
 
         var disallowed = await UploadAsync(client, "hola"u8.ToArray(), "text/plain", "nota.txt");
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, disallowed.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, disallowed.Status);
     }
 
     [Fact]
@@ -93,11 +93,11 @@ public sealed class FilesTests(PostgresFixture pg)
     }
 
     [Fact]
-    public async Task Mas_de_50_claves_en_el_lote_es_422()
+    public async Task Mas_de_50_claves_en_el_lote_es_400()
     {
         var client = await AdminClientAsync();
         var keys = Enumerable.Range(0, 51).Select(i => $"1/2026/01/{i}.png").ToArray();
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.PostAsync("/api/v1/files/urls", new { objectKeys = keys })).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/api/v1/files/urls", new { objectKeys = keys })).Status);
     }
 }

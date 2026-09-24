@@ -33,7 +33,7 @@ controller que deriva de `BaseApiController` y hace `MapResult(await DispatchAsy
   rota puede lanzar una `BusinessException` de `Shared.Kernel.Errors`; lo inesperado sale como 500 generico y
   su detalle va al log, **nunca** al cliente.
 
-Mapeo unico (`Shared.Web/Errors/FailureStatusCodes.cs`): `IValidationFailure` 422, `IBadRequestFailure` 400,
+Mapeo unico (`Shared.Web/Errors/FailureStatusCodes.cs`): `IValidationFailure` y `IBadRequestFailure` 400 (ADR-0007),
 `IUnauthorizedFailure` 401, `IForbiddenFailure` 403, `INotFoundFailure` 404, `IConflictFailure` 409.
 
 ## Datos

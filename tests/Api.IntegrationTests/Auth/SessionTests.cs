@@ -96,7 +96,7 @@ public sealed class SessionTests(PostgresFixture pg)
 
         // Nadie se bloquea a si mismo (dejaria al tenant sin quien lo desbloquee).
         var self = await pg.Api.CreateClient(admin.AccessToken).PostAsync($"/api/v1/accounts/{tenant.AdminUserId}/lock");
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, self.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, self.Status);
     }
 
     [Fact]
@@ -146,10 +146,10 @@ public sealed class SessionTests(PostgresFixture pg)
         var client = pg.Api.CreateClient(tokens.AccessToken);
 
         var wrong = await client.PostAsync("/api/v1/account/password", new { currentPassword = "no-es-esta", newPassword = "Contrasena-Nueva-987" });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, wrong.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.Status);
 
         var weak = await client.PostAsync("/api/v1/account/password", new { currentPassword = tenant.AdminPassword, newPassword = "corta" });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, weak.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, weak.Status);
 
         var ok = await client.PostAsync("/api/v1/account/password", new { currentPassword = tenant.AdminPassword, newPassword = "Contrasena-Nueva-987" });
         Assert.Equal(HttpStatusCode.OK, ok.Status);

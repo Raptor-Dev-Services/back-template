@@ -22,7 +22,7 @@ namespace Tenancy.Presentation.Controllers;
 [Route("api/v1/files")]
 public sealed class FilesController(IMediator mediator, ResultViewModel<FilesController> viewModel) : BaseApiController(mediator)
 {
-    /// <summary>Sube un archivo (multipart/form-data, campo <c>file</c>). 422 si el tipo, la firma o el tamano no valen.</summary>
+    /// <summary>Sube un archivo (multipart/form-data, campo <c>file</c>). 400 si el tipo, la firma o el tamano no valen.</summary>
     [HttpPost]
     [Authorize(Policy = PermissionPolicy.Prefix + KnownPermissions.FilesWrite)]
     [EnableRateLimiting(RateLimitPolicies.Upload)]

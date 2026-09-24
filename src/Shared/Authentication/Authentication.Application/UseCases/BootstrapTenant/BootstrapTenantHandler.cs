@@ -57,7 +57,7 @@ internal sealed class BootstrapTenantHandler(
 
         return await unitOfWork.ExecuteAsync<BootstrapTenantResponse>(async ct =>
         {
-            // CreateTenantAsync valida nombre y slug (422) y la unicidad del slug (409).
+            // CreateTenantAsync valida nombre y slug (400) y la unicidad del slug (409).
             var tenant = await tenancy.GetTenantBySlugAsync(request.TenantSlug, ct)
                          ?? await tenancy.CreateTenantAsync(request.TenantName, request.TenantSlug, ct);
 

@@ -111,7 +111,7 @@ public sealed class ProvisioningTests(PostgresFixture pg)
 
         // El token es de un solo uso.
         var reuse = await pg.Api.CreateClient().PostAsync("/api/v1/auth/password/reset", new { token, newPassword = "Tercera-Contrasena-789" });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, reuse.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, reuse.Status);
 
         // Un miembro no administra usuarios.
         var escalation = await pg.Api.CreateClient(member.AccessToken).PostAsync("/api/v1/accounts",
@@ -128,6 +128,6 @@ public sealed class ProvisioningTests(PostgresFixture pg)
         var result = await pg.Api.CreateClient(admin.AccessToken).PostAsync("/api/v1/accounts",
             new { email = $"x-{Guid.NewGuid():N}@example.test", fullName = "X", roleCodes = new[] { "SuperAdmin" } });
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, result.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, result.Status);
     }
 }

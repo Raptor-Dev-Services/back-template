@@ -19,16 +19,15 @@ unica de status es `Shared.Web/Errors/FailureStatusCodes.cs`:
 
 | Status | Marca del response | Excepcion (`Shared.Kernel/Errors/BusinessException.cs`) |
 |---|---|---|
-| 400 | `IBadRequestFailure` (y el modelo malformado) | `BadRequestException` |
+| 400 | `IBadRequestFailure`, `IValidationFailure` y el modelo malformado | `BadRequestException`, `ValidationException` y cualquier `BusinessRuleException` de Common |
 | 401 | `IUnauthorizedFailure` | `UnauthorizedException` |
 | 403 | `IForbiddenFailure` | `ForbiddenException` |
 | 404 | `INotFoundFailure` | `NotFoundException` |
 | 409 | `IConflictFailure` | `ConflictException` |
-| 422 | `IValidationFailure` | `ValidationException` y cualquier `BusinessRuleException` de Common |
 | 400 | un `IFailure` sin marca (conviene marcarlo) | - |
 | 500 | - | cualquier otra excepcion |
 
-Las marcas 400/401/403 estan en `Shared.Kernel/Results/FailureKinds.cs`; las de 404/409/422 vienen de
+Las marcas 400/401/403 estan en `Shared.Kernel/Results/FailureKinds.cs`; las de 404/409 y la de validacion vienen de
 `Common.Results`. Todas las excepciones de negocio derivan de `BusinessRuleException` de Common.
 
 ## Quien traduce

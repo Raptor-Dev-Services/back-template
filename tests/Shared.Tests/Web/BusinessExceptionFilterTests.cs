@@ -23,8 +23,8 @@ public sealed class BusinessExceptionFilterTests
         { new ForbiddenException("m"), StatusCodes.Status403Forbidden },
         { new NotFoundException("m"), StatusCodes.Status404NotFound },
         { new ConflictException("m"), StatusCodes.Status409Conflict },
-        { new ValidationException("m"), StatusCodes.Status422UnprocessableEntity },
-        { new Common.Exceptions.BusinessRuleException("m"), StatusCodes.Status422UnprocessableEntity },
+        { new ValidationException("m"), StatusCodes.Status400BadRequest },
+        { new Common.Exceptions.BusinessRuleException("m"), StatusCodes.Status400BadRequest },
     };
 
     [Theory]
@@ -113,7 +113,7 @@ public sealed class BusinessExceptionFilterTests
         Assert.Equal(403, FailureStatusCodes.For(new Forbidden("")));
         Assert.Equal(404, FailureStatusCodes.For(new NotFound("")));
         Assert.Equal(409, FailureStatusCodes.For(new Conflict("")));
-        Assert.Equal(422, FailureStatusCodes.For(new Invalid("")));
+        Assert.Equal(400, FailureStatusCodes.For(new Invalid("")));
         Assert.Equal(400, FailureStatusCodes.For(new Unmarked("")));
     }
 

@@ -1,6 +1,6 @@
 # ADR-0006 - Un fallo de validacion responde 422
 
-- Estado: Aceptado
+- Estado: Supersedido por ADR-0007
 - Fecha: 2026-09-24
 - Deciden: mantenedores de back-template
 

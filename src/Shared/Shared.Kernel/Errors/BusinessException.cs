@@ -25,7 +25,7 @@ public abstract class BusinessException : BusinessRuleException
     protected BusinessException(string message) : base(message) { }
 }
 
-/// <summary>Datos de entrada que violan una regla de negocio -> HTTP 422.</summary>
+/// <summary>Datos de entrada que violan una regla de negocio -> HTTP 400 (como IBadRequestFailure: regla backend-architecture).</summary>
 public sealed class ValidationException(string message) : BusinessException(message);
 
 /// <summary>Peticion malformada o no procesable a bajo nivel -> HTTP 400.</summary>

@@ -32,7 +32,7 @@ public sealed class TwoFactorTests(PostgresFixture pg)
         Assert.StartsWith("otpauth://totp/", setup.Data.GetProperty("otpauthUri").GetString());
 
         var wrong = await client.PostAsync("/api/v1/account/2fa/enable", new { code = "000000" });
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, wrong.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.Status);
 
         var enabled = await client.PostAsync("/api/v1/account/2fa/enable", new { code = CodeFor(secret, 0) });
         Assert.Equal(HttpStatusCode.OK, enabled.Status);
@@ -115,7 +115,7 @@ public sealed class TwoFactorTests(PostgresFixture pg)
             new { challengeToken = first.Data.GetProperty("challengeToken").GetString(), code = codes[0] });
         var authed = pg.Api.CreateClient(session.Data.GetProperty("accessToken").GetString()!);
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await authed.PostAsync("/api/v1/account/2fa/disable", new { code = "123456" })).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await authed.PostAsync("/api/v1/account/2fa/disable", new { code = "123456" })).Status);
         Assert.Equal(HttpStatusCode.OK, (await authed.PostAsync("/api/v1/account/2fa/disable", new { code = codes[1] })).Status);
 
         // Sin 2FA el login vuelve a dar la sesion directo.
