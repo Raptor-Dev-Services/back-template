@@ -103,6 +103,7 @@ app.UseAuthentication();
 app.UseRateLimitingIfEnabled();               // despues de autenticar: la politica por usuario lee el sub validado
 app.UseAuthorization();
 app.UseMiddleware<TenantContextMiddleware>(); // despues de autenticar: el tenant sale del JWT ya validado
+app.UseMiddleware<TenantStatusGuardMiddleware>(); // un token vigente de un tenant suspendido ya no entra
 
 app.MapControllers();
 app.MapHealth();
