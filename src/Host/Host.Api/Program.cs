@@ -1,7 +1,6 @@
 using Authentication.Application;
 using Authentication.Infrastructure;
 using Authentication.Presentation;
-using Common.Logging;
 using Common.Messaging;
 using Common.MultiTenancy;
 using Common.Observability;
@@ -33,7 +32,9 @@ builder.Host.UseDefaultServiceProvider(options =>
 
 builder.Configuration.EnsureProductionSettings(builder.Environment);
 
-builder.Services.AddLoggingServices(builder.Configuration);
+// Logs: Serilog con contexto de peticion. Trazas y metricas: OpenTelemetry por OTLP (Common), sin exportador
+// Prometheus (era un paquete beta) y con el nombre del meter configurable.
+builder.AddAppLogging();
 builder.Services.AddObservability(
     builder.Configuration,
     builder.Configuration["Observability:MeterName"] ?? "BackTemplate.Api");
@@ -84,6 +85,7 @@ var app = builder.Build();
 
 // --- Pipeline (el orden es parte de la seguridad; ver HttpEdgeExtensions.UseHttpEdge) -----------
 app.UseHttpEdge();          // IP real, correlacion, cabeceras de seguridad, HSTS
+app.UseAppRequestLogging(); // un evento por peticion, sin query string; salud a Verbose
 app.UseApiErrorHandling();  // un solo formato de error para todo lo de abajo
 app.UseSwaggerIfEnabled();
 

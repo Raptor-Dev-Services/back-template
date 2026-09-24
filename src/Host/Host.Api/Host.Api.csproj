@@ -20,6 +20,8 @@
     <!-- Carga el .env del repo SOLO en Development (ver ConfigurationExtensions). -->
     <PackageReference Include="DotNetEnv" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <!-- Logging estructurado: trae el sink de consola, el formato JSON compacto y la lectura de "Serilog". -->
+    <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
