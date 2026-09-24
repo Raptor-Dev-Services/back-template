@@ -44,7 +44,8 @@ public sealed record AccountDto(
     string Email,
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> Permissions,
-    DateTime? LastLoginAtUtc);
+    DateTime? LastLoginAtUtc,
+    bool TwoFactorEnabled);
 
 /// <summary>Acuse de una operacion que no devuelve datos (y que a proposito no confirma nada mas).</summary>
 public sealed record AcceptedDto(bool Accepted = true);

@@ -16,6 +16,7 @@ internal sealed class GetMyAccountHandler(IUserCredentialRepository credentials,
 
         var (roles, permissions) = await rbac.GetGrantsAsync(credential.TenantId, credential.Id, cancellationToken);
         return new GetMyAccountSuccess(new AccountDto(
-            credential.PublicId, credential.TenantId, credential.Email, roles, permissions, credential.LastLoginAtUtc));
+            credential.PublicId, credential.TenantId, credential.Email, roles, permissions, credential.LastLoginAtUtc,
+            credential.IsTwoFactorEnabled));
     }
 }

@@ -39,6 +39,10 @@ public sealed class TwoFactorTests(PostgresFixture pg)
         var codes = enabled.Data.GetProperty("codes").EnumerateArray().Select(c => c.GetString()!).ToArray();
         Assert.Equal(10, codes.Length);
 
+        // La pantalla de cuenta decide con esto si ofrece activar o desactivar.
+        var me = await client.GetEnvelopeAsync("/api/v1/account/me");
+        Assert.True(me.Data.GetProperty("twoFactorEnabled").GetBoolean());
+
         return (tenant, secret, codes);
     }
 

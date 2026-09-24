@@ -65,6 +65,7 @@ public sealed class ProvisioningTests(PostgresFixture pg)
         var me = await pg.Api.CreateClient(tokens.AccessToken).GetEnvelopeAsync("/api/v1/account/me");
         Assert.Equal(HttpStatusCode.OK, me.Status);
         Assert.Equal(tenant.TenantId, me.Data.GetProperty("tenantId").GetInt64());
+        Assert.False(me.Data.GetProperty("twoFactorEnabled").GetBoolean());
         var permissions = me.Data.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()).ToArray();
         Assert.Contains("users.manage", permissions);
         Assert.Contains("users.read", permissions);
