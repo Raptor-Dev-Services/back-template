@@ -1,18 +1,23 @@
 # HANDOFF - estado actual
 
-Actualizado: 2026-09-24. Rama `main`, sin empujar (los commits son locales hasta que una persona decida).
+Actualizado: 2026-09-24. Rama `main`, **empujada** (el usuario lo autorizo al cierre), arbol limpio, sin otras ramas.
 
 ## Que hay
 
 El chasis generico de SaaS multi-tenant descrito en README y CHANGELOG, portado del chasis de un producto real
 sin su logica de negocio. Build `-warnaserror` en 0/0 y 195 pruebas en verde:
 Shared 26, Users 2, Authentication 22, Tenancy 20, Architecture 37, Integracion 88 (Postgres real por
-Testcontainers).
+Testcontainers). Remedido el 2026-09-24 sobre `23d0d55`; el CI de `main` tambien en verde.
+
+- `Common` fijado a **v2.1.3** (`dace97a`), sin cambios de codigo aqui.
+- Dependabot quedo activo: su primer PR (acciones de GitHub) se mergeo en `23d0d55`. Subio de version
+  **mayor** las cuatro acciones de Docker (`build-push` 7, `login` 4, `metadata` 6, `buildx` 4), que
+  solo usan los workflows de despliegue: **el primer despliegue es su prueba**. Si falla, mira ahi.
 
 ## Como retomar
 
 ```bash
-git submodule update --init          # Common fijado a aedf830
+git submodule update --init          # Common fijado a v2.1.3 (dace97a)
 ./scripts/dev-db.sh all              # base backtemplate en el devstack
 cp .env.example .env                 # rellenar las tres claves
 dotnet run --project src/Host/Host.Api   # http://localhost:5060
