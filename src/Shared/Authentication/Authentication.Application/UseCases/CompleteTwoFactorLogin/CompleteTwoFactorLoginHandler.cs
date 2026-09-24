@@ -25,7 +25,7 @@ internal sealed class CompleteTwoFactorLoginHandler(
 
     public async Task<CompleteTwoFactorLoginResponse> Handle(CompleteTwoFactorLoginRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.ChallengeToken) || string.IsNullOrWhiteSpace(request.Code))
+        if (string.IsNullOrWhiteSpace(request.ChallengeToken) || string.IsNullOrWhiteSpace(request.OtpCode))
             return new CompleteTwoFactorLoginInvalidFailure(Invalid);
 
         var publicId = await challenges.ValidateAsync(request.ChallengeToken);
@@ -38,7 +38,7 @@ internal sealed class CompleteTwoFactorLoginHandler(
         if (credential.IsLocked)
             return new CompleteTwoFactorLoginForbiddenFailure("La cuenta esta bloqueada. Contacta a un administrador de tu empresa.");
 
-        if (!await secondFactor.VerifyAsync(credential, request.Code, cancellationToken))
+        if (!await secondFactor.VerifyAsync(credential, request.OtpCode, cancellationToken))
             return new CompleteTwoFactorLoginInvalidFailure(Invalid);
 
         var tenant = await tenancy.GetTenantByIdAsync(credential.TenantId, cancellationToken);

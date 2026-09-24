@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Authentication.Application.Dto;
 
 /// <summary>Resultado de un inicio o renovacion de sesion. El refresh token en claro viaja SOLO aqui, una vez.</summary>
@@ -29,8 +31,12 @@ public sealed record LoginResultDto(
 /// <summary>Primer paso del 2FA: el secreto (para teclearlo) y la URI otpauth (para pintarla como QR).</summary>
 public sealed record TwoFactorSetupDto(string Secret, string OtpauthUri);
 
-/// <summary>Codigos de recuperacion EN CLARO. Se muestran una sola vez: en la base solo queda su hash.</summary>
-public sealed record RecoveryCodesDto(IReadOnlyList<string> Codes);
+/// <summary>
+/// Codigos de recuperacion EN CLARO. Se muestran una sola vez: en la base solo queda su hash.
+/// La propiedad se llama OtpRecoveryCodes (y sale como "codes" en el JSON) porque Common registra cada respuesta y
+/// tapa por NOMBRE: con "Codes" los diez codigos llegaban en claro al log. Ver RequestLoggingSecretsTests.
+/// </summary>
+public sealed record RecoveryCodesDto([property: JsonPropertyName("codes")] IReadOnlyList<string> OtpRecoveryCodes);
 
 public sealed record BootstrapResultDto(Guid TenantPublicId, long TenantId, string TenantSlug, Guid AdminUserId, string AdminEmail);
 

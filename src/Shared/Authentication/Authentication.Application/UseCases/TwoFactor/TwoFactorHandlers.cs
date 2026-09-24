@@ -54,7 +54,7 @@ internal sealed class EnableTwoFactorHandler(
             return new EnableTwoFactorValidationFailure("Primero genera el codigo QR (configurar 2FA).");
 
         var secret = protector.TryUnprotect(credential.TotpSecretProtected);
-        var step = secret is null ? null : totp.VerifyStep(secret, request.Code ?? string.Empty, minStepExclusive: 0);
+        var step = secret is null ? null : totp.VerifyStep(secret, request.OtpCode ?? string.Empty, minStepExclusive: 0);
         if (step is null)
             return new EnableTwoFactorValidationFailure("El codigo no coincide. Revisa la hora del telefono e intenta de nuevo.");
 
@@ -89,7 +89,7 @@ internal sealed class DisableTwoFactorHandler(
             return new DisableTwoFactorValidationFailure("El 2FA no esta activo.");
 
         // Una sesion robada no basta para quitar el segundo factor: hace falta el segundo factor.
-        if (!await secondFactor.VerifyAsync(credential, request.Code, cancellationToken))
+        if (!await secondFactor.VerifyAsync(credential, request.OtpCode, cancellationToken))
             return new DisableTwoFactorValidationFailure("El codigo no es valido.");
 
         return await unitOfWork.ExecuteAsync<DisableTwoFactorResponse>(async ct =>
