@@ -19,7 +19,9 @@ using Users.Presentation;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddLoggingServices(builder.Configuration);
-builder.Services.AddObservability(builder.Configuration);
+builder.Services.AddObservability(
+    builder.Configuration,
+    builder.Configuration["Observability:MeterName"] ?? "BackTemplate.Api");
 
 // Multi-tenancy
 builder.Services.AddSingleton<ITenantContextAccessor, TenantContextAccessor>();
@@ -78,6 +80,5 @@ app.UseMiddleware<TenantClaimsMiddleware>();
 
 app.MapControllers();
 app.MapHealth();
-app.MapPrometheusScrapingEndpoint();
 
 app.Run();
