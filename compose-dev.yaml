@@ -59,8 +59,8 @@ services:
       Smtp__UseSsl: "false"
       Smtp__From: no-reply@back-template.local
       Seq__ServerUrl: ${BACKTEMPLATE_SEQ_URL:-http://seq:5341}
-      Cors__AllowedOrigins: "http://localhost:${BACKTEMPLATE_WEB_PORT:-5173}"
-      Web__BaseUrl: "http://localhost:${BACKTEMPLATE_WEB_PORT:-5173}"
+      Cors__AllowedOrigins: "http://localhost:${BACKTEMPLATE_WEB_PORT:-5179}"
+      Web__BaseUrl: "http://localhost:${BACKTEMPLATE_WEB_PORT:-5179}"
     ports:
       # El MISMO puerto que con `dotnet run`, para que el .env del cliente valga en los dos modos.
       - "${BACKTEMPLATE_API_PORT:-5060}:8080"

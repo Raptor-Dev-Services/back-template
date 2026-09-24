@@ -22,7 +22,7 @@ public sealed class WebOptions
 {
     public const string SectionName = "Web";
 
-    public string BaseUrl { get; set; } = "http://localhost:5173";
+    public string BaseUrl { get; set; } = "http://localhost:5179";
 
     /// <summary>Enlace absoluto a una ruta del cliente web, con la query ya codificada.</summary>
     public string Link(string path, string queryKey, string queryValue) =>
