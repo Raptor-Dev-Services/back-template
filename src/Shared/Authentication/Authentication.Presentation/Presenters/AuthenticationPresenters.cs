@@ -1,6 +1,8 @@
 using Authentication.Application.Dto;
 using Authentication.Application.UseCases.BootstrapTenant.Responses;
 using Authentication.Application.UseCases.ChangePassword.Responses;
+using Authentication.Application.UseCases.CompleteTwoFactorLogin.Responses;
+using Authentication.Application.UseCases.TwoFactor.Responses;
 using Authentication.Application.UseCases.GetMyAccount.Responses;
 using Authentication.Application.UseCases.GetRoles.Responses;
 using Authentication.Application.UseCases.InviteUser.Responses;
@@ -19,7 +21,19 @@ namespace Authentication.Presentation.Presenters;
 // Un presenter por caso de uso, registrado a mano en ServiceCollectionEx. El mapeo comun vive en ResultPresenter.
 
 internal sealed class LoginPresenter(ResultViewModel<AuthController> vm)
-    : ResultPresenter<AuthController, LoginResponse, AuthTokensDto>(vm);
+    : ResultPresenter<AuthController, LoginResponse, LoginResultDto>(vm);
+
+internal sealed class CompleteTwoFactorLoginPresenter(ResultViewModel<AuthController> vm)
+    : ResultPresenter<AuthController, CompleteTwoFactorLoginResponse, LoginResultDto>(vm);
+
+internal sealed class BeginTwoFactorSetupPresenter(ResultViewModel<AccountController> vm)
+    : ResultPresenter<AccountController, BeginTwoFactorSetupResponse, TwoFactorSetupDto>(vm);
+
+internal sealed class EnableTwoFactorPresenter(ResultViewModel<AccountController> vm)
+    : ResultPresenter<AccountController, EnableTwoFactorResponse, RecoveryCodesDto>(vm);
+
+internal sealed class DisableTwoFactorPresenter(ResultViewModel<AccountController> vm)
+    : ResultPresenter<AccountController, DisableTwoFactorResponse, AcceptedDto>(vm);
 
 internal sealed class RefreshSessionPresenter(ResultViewModel<AuthController> vm)
     : ResultPresenter<AuthController, RefreshSessionResponse, AuthTokensDto>(vm);

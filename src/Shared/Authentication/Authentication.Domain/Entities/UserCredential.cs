@@ -28,6 +28,23 @@ public sealed class UserCredential : TenantEntity
     public DateTime? LastLoginAtUtc { get; set; }
     public DateTime? PasswordChangedAtUtc { get; set; }
 
+    /// <summary>
+    /// Secreto TOTP CIFRADO (AES-GCM, ver <c>ISecretProtector</c>): ni en claro ni hasheado, porque el servidor
+    /// lo necesita para verificar cada codigo. Existe "pendiente" entre el setup y la activacion.
+    /// </summary>
+    public string? TotpSecretProtected { get; set; }
+
+    /// <summary>Cuando se ACTIVO el 2FA. Null = inactivo (aunque haya un secreto pendiente).</summary>
+    public DateTime? TotpEnabledAtUtc { get; set; }
+
+    /// <summary>
+    /// Ultimo paso TOTP (periodo de 30 s) consumido. Anti-replay: un codigo de un paso menor o igual ya se uso y
+    /// se rechaza, asi el mismo codigo no sirve dos veces dentro de su ventana de validez.
+    /// </summary>
+    public long LastTotpStep { get; set; }
+
+    public bool IsTwoFactorEnabled => TotpEnabledAtUtc is not null;
+
     /// <summary>Puede iniciar sesion o renovarla: activa, no bloqueada y no borrada.</summary>
     public bool CanSignIn => IsActive && !IsLocked && !IsDeleted;
 }

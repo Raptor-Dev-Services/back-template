@@ -20,8 +20,10 @@ public sealed class UserCredentialConfiguration : IEntityTypeConfiguration<UserC
 
         b.Property(e => e.PasswordHash).HasMaxLength(100).IsRequired();
         b.Property(e => e.IsActive).HasDefaultValue(true);
+        b.Property(e => e.TotpSecretProtected).HasMaxLength(200);
 
         b.Ignore(e => e.CanSignIn);
+        b.Ignore(e => e.IsTwoFactorEnabled);
     }
 }
 
@@ -63,5 +65,18 @@ public sealed class PasswordSetupTokenConfiguration : IEntityTypeConfiguration<P
 
         b.HasOne<UserCredential>().WithMany().HasForeignKey(e => e.CredentialId)
             .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_PasswordSetupToken_UserCredential_CredentialId");
+    }
+}
+
+public sealed class TwoFactorRecoveryCodeConfiguration : IEntityTypeConfiguration<TwoFactorRecoveryCode>
+{
+    public void Configure(EntityTypeBuilder<TwoFactorRecoveryCode> b)
+    {
+        b.ToTable("TwoFactorRecoveryCode");
+        b.HasKey(e => e.Id);
+        b.Property(e => e.CodeHash).HasMaxLength(64).IsFixedLength().IsRequired();
+        b.HasIndex(e => new { e.CredentialId, e.ConsumedAtUtc }).HasDatabaseName("IX_TwoFactorRecoveryCode_CredentialId_ConsumedAtUtc");
+        b.HasOne<UserCredential>().WithMany().HasForeignKey(e => e.CredentialId)
+            .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_TwoFactorRecoveryCode_UserCredential_CredentialId");
     }
 }

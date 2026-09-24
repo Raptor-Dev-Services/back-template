@@ -1,3 +1,4 @@
+using Authentication.Application.Dto;
 using Authentication.Application.Sessions;
 using Authentication.Application.UseCases.Login.Responses;
 using Authentication.Domain;
@@ -14,6 +15,7 @@ internal sealed class LoginHandler(
     IPasswordHasher hasher,
     ITenancyApi tenancy,
     SessionIssuer sessions,
+    ITwoFactorChallenges challenges,
     IUnitOfWork unitOfWork) : IRequestHandler<LoginRequest, LoginResponse>
 {
     public const string InvalidCredentials = "Correo o contrasena incorrectos.";
@@ -36,10 +38,14 @@ internal sealed class LoginHandler(
         if (tenant is null || !tenant.IsActive)
             return new LoginForbiddenFailure("La cuenta de tu empresa esta suspendida.");
 
+        // Con 2FA la contrasena es solo el primer paso: no se emite sesion, se emite el reto del segundo.
+        if (credential.IsTwoFactorEnabled)
+            return new LoginSuccess(LoginResultDto.Challenge(challenges.Issue(credential.PublicId)));
+
         var (tokens, _) = await sessions.IssueAsync(credential, request.ClientIp, cancellationToken);
         credential.LastLoginAtUtc = DateTime.UtcNow;
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return new LoginSuccess(tokens);
+        return new LoginSuccess(LoginResultDto.From(tokens));
     }
 }

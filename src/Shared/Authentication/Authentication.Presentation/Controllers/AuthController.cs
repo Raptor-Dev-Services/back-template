@@ -1,3 +1,4 @@
+using Authentication.Application.UseCases.CompleteTwoFactorLogin;
 using Authentication.Application.UseCases.Login;
 using Authentication.Application.UseCases.Logout;
 using Authentication.Application.UseCases.RefreshSession;
@@ -27,6 +28,14 @@ public sealed class AuthController(IMediator mediator, ResultViewModel<AuthContr
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginBody body, CancellationToken cancellationToken = default) =>
         MapResult(await DispatchAsync(new LoginRequest(body.Email, body.Password, ClientIp), cancellationToken), viewModel);
+
+    /// <summary>
+    /// Segundo paso del login con 2FA: el challengeToken que devolvio el login mas un codigo TOTP o de
+    /// recuperacion, a cambio de la sesion. Mismo limite de tasa estricto: 6 digitos son fuerza bruta barata.
+    /// </summary>
+    [HttpPost("login/2fa")]
+    public async Task<IActionResult> LoginTwoFactor([FromBody] TwoFactorLoginBody body, CancellationToken cancellationToken = default) =>
+        MapResult(await DispatchAsync(new CompleteTwoFactorLoginRequest(body.ChallengeToken, body.Code, ClientIp), cancellationToken), viewModel);
 
     /// <summary>Rota el refresh token: revoca el presentado y emite uno nuevo con un access JWT al dia.</summary>
     [HttpPost("refresh")]

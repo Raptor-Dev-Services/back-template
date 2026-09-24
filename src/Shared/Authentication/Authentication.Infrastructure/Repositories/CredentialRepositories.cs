@@ -22,6 +22,9 @@ internal sealed class UserCredentialRepository(AppDbContext db) : IUserCredentia
     public Task<UserCredential?> FindForSignInAsync(long credentialId, CancellationToken cancellationToken = default) =>
         AcrossTenants.FirstOrDefaultAsync(e => e.Id == credentialId, cancellationToken);
 
+    public Task<UserCredential?> FindForSignInAsync(Guid publicId, CancellationToken cancellationToken = default) =>
+        AcrossTenants.FirstOrDefaultAsync(e => e.PublicId == publicId, cancellationToken);
+
     public Task<bool> EmailExistsAsync(string normalizedEmail, CancellationToken cancellationToken = default) =>
         Set.IgnoreQueryFilters().AnyAsync(e => e.Email == normalizedEmail, cancellationToken);
 
@@ -75,4 +78,20 @@ internal sealed class PasswordSetupTokenRepository(AppDbContext db) : IPasswordS
     }
 
     public void Add(PasswordSetupToken token) => db.Set<PasswordSetupToken>().Add(token);
+}
+
+internal sealed class TwoFactorRecoveryCodeRepository(AppDbContext db) : ITwoFactorRecoveryCodeRepository
+{
+    private IQueryable<TwoFactorRecoveryCode> AcrossTenants => db.Set<TwoFactorRecoveryCode>().IgnoreQueryFilters([QueryFilterNames.Tenant]);
+
+    public async Task<IReadOnlyList<TwoFactorRecoveryCode>> ListUsableAsync(long credentialId, CancellationToken cancellationToken = default) =>
+        await AcrossTenants.Where(c => c.CredentialId == credentialId && c.ConsumedAtUtc == null).ToListAsync(cancellationToken);
+
+    public async Task ConsumeAllAsync(long credentialId, DateTime nowUtc, CancellationToken cancellationToken = default)
+    {
+        foreach (var code in await ListUsableAsync(credentialId, cancellationToken))
+            code.Consume(nowUtc);
+    }
+
+    public void Add(TwoFactorRecoveryCode code) => db.Set<TwoFactorRecoveryCode>().Add(code);
 }

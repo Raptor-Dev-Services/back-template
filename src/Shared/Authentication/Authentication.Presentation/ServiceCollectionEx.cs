@@ -1,5 +1,7 @@
 using Authentication.Application.UseCases.BootstrapTenant.Responses;
 using Authentication.Application.UseCases.ChangePassword.Responses;
+using Authentication.Application.UseCases.CompleteTwoFactorLogin.Responses;
+using Authentication.Application.UseCases.TwoFactor.Responses;
 using Authentication.Application.UseCases.GetMyAccount.Responses;
 using Authentication.Application.UseCases.GetRoles.Responses;
 using Authentication.Application.UseCases.InviteUser.Responses;
@@ -35,6 +37,10 @@ public static class ServiceCollectionEx
         services.AddScoped<INotificationHandler<InviteUserResponse>, InviteUserPresenter>();
         services.AddScoped<INotificationHandler<SetUserLockResponse>, SetUserLockPresenter>();
         services.AddScoped<INotificationHandler<GetRolesResponse>, GetRolesPresenter>();
+        services.AddScoped<INotificationHandler<CompleteTwoFactorLoginResponse>, CompleteTwoFactorLoginPresenter>();
+        services.AddScoped<INotificationHandler<BeginTwoFactorSetupResponse>, BeginTwoFactorSetupPresenter>();
+        services.AddScoped<INotificationHandler<EnableTwoFactorResponse>, EnableTwoFactorPresenter>();
+        services.AddScoped<INotificationHandler<DisableTwoFactorResponse>, DisableTwoFactorPresenter>();
 
         services.AddControllers().AddApplicationPart(typeof(ServiceCollectionEx).Assembly);
         return services;

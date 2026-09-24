@@ -31,6 +31,16 @@ public static class JwtAuthExtensions
                 $"Bootstrap:Secret debe tener al menos {MinKeyBytes} bytes: protege un endpoint anonimo que crea administradores.");
         services.AddSingleton(bootstrap);
 
+        // 2FA: la clave que cifra los secretos TOTP es OBLIGATORIA y DISTINTA de la del JWT. Rotar Jwt:Key (por
+        // una fuga, por politica) no debe dejar ilegibles todos los secretos 2FA y obligar a re-enrolar a todos.
+        var totp = configuration.GetSection(TotpOptions.SectionName).Get<TotpOptions>() ?? new TotpOptions();
+        if (string.IsNullOrWhiteSpace(totp.EncryptionKey) || Encoding.UTF8.GetByteCount(totp.EncryptionKey) < MinKeyBytes)
+            throw new InvalidOperationException(
+                $"Totp:EncryptionKey (Totp__EncryptionKey) es obligatoria y de al menos {MinKeyBytes} bytes: cifra los secretos 2FA.");
+        if (string.Equals(totp.EncryptionKey, auth.Key, StringComparison.Ordinal))
+            throw new InvalidOperationException("Totp:EncryptionKey debe ser distinta de Jwt:Key.");
+        services.AddSingleton(totp);
+
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>

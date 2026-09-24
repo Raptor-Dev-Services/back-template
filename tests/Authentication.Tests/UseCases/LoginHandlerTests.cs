@@ -19,8 +19,10 @@ public sealed class LoginHandlerTests
     private readonly ITenancyApi _tenancy = Substitute.For<ITenancyApi>();
     private readonly InlineUnitOfWork _unitOfWork = new();
 
+    private readonly ITwoFactorChallenges _challenges = Substitute.For<ITwoFactorChallenges>();
+
     private LoginHandler Handler() =>
-        new(_credentials, _hasher, _tenancy, TestSessions.Create(_rbac, _refreshTokens), _unitOfWork);
+        new(_credentials, _hasher, _tenancy, TestSessions.Create(_rbac, _refreshTokens), _challenges, _unitOfWork);
 
     private UserCredential Credential(bool locked = false, bool active = true)
     {
@@ -96,6 +98,7 @@ public sealed class LoginHandlerTests
         var result = await Handler().Handle(new LoginRequest("  ANA@example.test ", "buena", "10.0.0.1"), default);
 
         var success = Assert.IsType<LoginSuccess>(result);
+        Assert.False(success.Data.TwoFactorRequired);
         Assert.NotNull(stored);
         Assert.NotEqual(success.Data.RefreshToken, stored!.TokenHash);
         Assert.Equal(64, stored.TokenHash.Length);

@@ -15,6 +15,7 @@ public interface IUserCredentialRepository
 {
     Task<UserCredential?> FindForSignInAsync(string normalizedEmail, CancellationToken cancellationToken = default);
     Task<UserCredential?> FindForSignInAsync(long credentialId, CancellationToken cancellationToken = default);
+    Task<UserCredential?> FindForSignInAsync(Guid publicId, CancellationToken cancellationToken = default);
 
     /// <summary>Incluye las borradas: el indice unico tambien las cuenta.</summary>
     Task<bool> EmailExistsAsync(string normalizedEmail, CancellationToken cancellationToken = default);
@@ -47,6 +48,17 @@ public interface IPasswordSetupTokenRepository
     Task InvalidateActiveAsync(long credentialId, DateTime nowUtc, CancellationToken cancellationToken = default);
 
     void Add(PasswordSetupToken token);
+}
+
+/// <summary>Codigos de recuperacion de 2FA de una credencial. Cruzan tenants: se usan en el segundo paso del login.</summary>
+public interface ITwoFactorRecoveryCodeRepository
+{
+    Task<IReadOnlyList<TwoFactorRecoveryCode>> ListUsableAsync(long credentialId, CancellationToken cancellationToken = default);
+
+    /// <summary>Consume (sin guardar) todos los codigos vivos: al regenerarlos o al apagar el 2FA.</summary>
+    Task ConsumeAllAsync(long credentialId, DateTime nowUtc, CancellationToken cancellationToken = default);
+
+    void Add(TwoFactorRecoveryCode code);
 }
 
 /// <summary>Roles y permisos. El tenant va EXPLICITO: la autenticacion los consulta antes de tener contexto.</summary>

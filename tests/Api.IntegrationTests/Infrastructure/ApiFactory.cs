@@ -30,6 +30,7 @@ public sealed class ApiFactory(PostgresFixture pg, IDictionary<string, string?>?
         builder.UseSetting("Jwt:Issuer", TestJwt.Issuer);
         builder.UseSetting("Jwt:Audience", TestJwt.Audience);
         builder.UseSetting("Bootstrap:Secret", BootstrapSecret);
+        builder.UseSetting("Totp:EncryptionKey", "integration-tests-totp-encryption-key-0123456789");
         builder.UseSetting("Web:BaseUrl", "https://app.example.test");
 
         foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())

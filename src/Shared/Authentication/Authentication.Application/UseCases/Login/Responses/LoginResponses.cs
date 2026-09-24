@@ -7,7 +7,8 @@ namespace Authentication.Application.UseCases.Login.Responses;
 
 public abstract record LoginResponse : IResponse;
 
-public sealed record LoginSuccess(AuthTokensDto Data) : LoginResponse, ISuccess<AuthTokensDto>;
+/// <summary>Sesion emitida, o -con 2FA activo- el reto del segundo paso (ver <see cref="LoginResultDto"/>).</summary>
+public sealed record LoginSuccess(LoginResultDto Data) : LoginResponse, ISuccess<LoginResultDto>;
 
 /// <summary>Correo inexistente, contrasena incorrecta o cuenta dada de baja: el MISMO mensaje para los tres.</summary>
 public sealed record LoginInvalidCredentialsFailure(string Message) : LoginResponse, IUnauthorizedFailure;

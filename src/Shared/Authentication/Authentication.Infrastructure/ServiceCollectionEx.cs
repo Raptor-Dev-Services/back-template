@@ -22,9 +22,16 @@ public static class ServiceCollectionEx
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IPasswordSetupTokenRepository, PasswordSetupTokenRepository>();
         services.AddScoped<IRbacRepository, RbacRepository>();
+        services.AddScoped<ITwoFactorRecoveryCodeRepository, TwoFactorRecoveryCodeRepository>();
 
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<IAccessTokenIssuer, AccessTokenIssuer>();
+
+        // 2FA: TotpOptions lo registra el Host (se valida la clave de cifrado al arrancar).
+        services.AddSingleton<ITotpService, TotpService>();
+        services.AddSingleton<ISecretProtector, AesSecretProtector>();
+        services.AddSingleton<IRecoveryCodes, RecoveryCodes>();
+        services.AddSingleton<ITwoFactorChallenges, TwoFactorChallenges>();
 
         services.AddHostedService<RbacCatalogSyncService>();
         return services;

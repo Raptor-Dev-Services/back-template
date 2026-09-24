@@ -8,6 +8,7 @@
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="Otp.NET" />
   </ItemGroup>
 
 </Project>

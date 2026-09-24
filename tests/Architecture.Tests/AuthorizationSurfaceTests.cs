@@ -37,6 +37,9 @@ public sealed class AuthorizationSurfaceTests(ITestOutputHelper output)
     {
         ["AccountController.Me"] = "la cuenta PROPIA, resuelta por el sub del token",
         ["AccountController.ChangePassword"] = "la contrasena PROPIA; exige la actual",
+        ["AccountController.BeginTwoFactorSetup"] = "el 2FA PROPIO",
+        ["AccountController.EnableTwoFactor"] = "el 2FA PROPIO; exige un codigo de la app",
+        ["AccountController.DisableTwoFactor"] = "el 2FA PROPIO; exige un segundo factor vigente",
     };
 
     [Fact]

@@ -91,6 +91,9 @@ namespace Shared.Infrastructure.Persistence.Migrations
                     IsLocked = table.Column<bool>(type: "boolean", nullable: false),
                     LastLoginAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     PasswordChangedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    TotpSecretProtected = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    TotpEnabledAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastTotpStep = table.Column<long>(type: "bigint", nullable: false),
                     TenantId = table.Column<long>(type: "bigint", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
@@ -240,6 +243,38 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "TwoFactorRecoveryCode",
+                schema: "public",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    CredentialId = table.Column<long>(type: "bigint", nullable: false),
+                    CodeHash = table.Column<string>(type: "character(64)", fixedLength: true, maxLength: 64, nullable: false),
+                    ConsumedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    TenantId = table.Column<long>(type: "bigint", nullable: false),
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    DeletedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DeletedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TwoFactorRecoveryCode", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_TwoFactorRecoveryCode_UserCredential_CredentialId",
+                        column: x => x.CredentialId,
+                        principalSchema: "public",
+                        principalTable: "UserCredential",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "UserRole",
                 schema: "public",
                 columns: table => new
@@ -377,6 +412,18 @@ namespace Shared.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_TwoFactorRecoveryCode_CredentialId_ConsumedAtUtc",
+                schema: "public",
+                table: "TwoFactorRecoveryCode",
+                columns: new[] { "CredentialId", "ConsumedAtUtc" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TwoFactorRecoveryCode_TenantId",
+                schema: "public",
+                table: "TwoFactorRecoveryCode",
+                column: "TenantId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_UserCredential_TenantId",
                 schema: "public",
                 table: "UserCredential",
@@ -459,6 +506,10 @@ namespace Shared.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "Tenant",
+                schema: "public");
+
+            migrationBuilder.DropTable(
+                name: "TwoFactorRecoveryCode",
                 schema: "public");
 
             migrationBuilder.DropTable(

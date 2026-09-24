@@ -12,7 +12,7 @@ using Shared.Infrastructure.Persistence;
 namespace Shared.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260924162740_InitialCreate")]
+    [Migration("20260924164335_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -328,6 +328,66 @@ namespace Shared.Infrastructure.Persistence.Migrations
                     b.ToTable("RolePermission", "public");
                 });
 
+            modelBuilder.Entity("Authentication.Domain.Entities.TwoFactorRecoveryCode", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("CredentialId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("TenantId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("CredentialId", "ConsumedAtUtc")
+                        .HasDatabaseName("IX_TwoFactorRecoveryCode_CredentialId_ConsumedAtUtc");
+
+                    b.ToTable("TwoFactorRecoveryCode", "public");
+                });
+
             modelBuilder.Entity("Authentication.Domain.Entities.UserCredential", b =>
                 {
                     b.Property<long>("Id")
@@ -367,6 +427,9 @@ namespace Shared.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("LastLoginAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long>("LastTotpStep")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime?>("PasswordChangedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -380,6 +443,13 @@ namespace Shared.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("TenantId")
                         .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("TotpEnabledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TotpSecretProtected")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -625,6 +695,16 @@ namespace Shared.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_RolePermission_Role_RoleId");
+                });
+
+            modelBuilder.Entity("Authentication.Domain.Entities.TwoFactorRecoveryCode", b =>
+                {
+                    b.HasOne("Authentication.Domain.Entities.UserCredential", null)
+                        .WithMany()
+                        .HasForeignKey("CredentialId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_TwoFactorRecoveryCode_UserCredential_CredentialId");
                 });
 
             modelBuilder.Entity("Authentication.Domain.Entities.UserRole", b =>

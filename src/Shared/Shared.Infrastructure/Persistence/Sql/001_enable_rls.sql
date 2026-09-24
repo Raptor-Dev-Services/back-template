@@ -21,10 +21,10 @@
 -- que exista tenant. Excluidas a proposito (y listadas en RlsIsolationTests y en el guardia
 -- del pipeline de deploy):
 --
---   UserCredential, RefreshToken,  el login, el refresh y el enlace de restablecimiento buscan
---   PasswordSetupToken             por correo o por hash sin saber aun el tenant. Las protege el
---                                  filtro de EF y que esas consultas van por claves unicas en
---                                  todo el sistema.
+--   UserCredential, RefreshToken,  el login (y su segundo paso), el refresh y el enlace de
+--   PasswordSetupToken,            restablecimiento buscan por correo, id o hash sin saber aun el
+--   TwoFactorRecoveryCode          tenant. Las protege el filtro de EF y que esas consultas van
+--                                  por claves unicas en todo el sistema.
 --   Role, RolePermission, UserRole los permisos del token se calculan en el login, antes de que
 --                                  haya contexto, y el catalogo se re-siembra al arrancar. Sus
 --                                  consultas re-acotan el TenantId a mano (RbacRepository).

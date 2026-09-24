@@ -23,3 +23,7 @@ public sealed record BootstrapTenantBody(
     string AdminFullName);
 
 public sealed record InviteUserBody(string Email, string FullName, IReadOnlyList<string>? RoleCodes);
+
+public sealed record TwoFactorLoginBody(string ChallengeToken, string Code);
+
+public sealed record TwoFactorCodeBody(string Code);
