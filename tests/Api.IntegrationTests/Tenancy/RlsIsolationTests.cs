@@ -22,8 +22,10 @@ public sealed class RlsIsolationTests(PostgresFixture pg)
     /// </summary>
     public static readonly string[] ExcludedOnPurpose =
     [
-        "UserCredential", // el login la lee por correo antes de conocer el tenant
-        "RefreshToken",   // el refresh la lee por token antes de conocer el tenant
+        // autenticacion: se leen por correo o por hash antes de conocer el tenant
+        "UserCredential", "RefreshToken", "PasswordSetupToken",
+        // RBAC: el login calcula los permisos del token antes de tener contexto (tenant explicito en RbacRepository)
+        "Role", "RolePermission", "UserRole",
     ];
 
     [Fact]

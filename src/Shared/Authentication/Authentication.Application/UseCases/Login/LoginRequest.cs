@@ -3,4 +3,4 @@ using Common.Messaging;
 
 namespace Authentication.Application.UseCases.Login;
 
-public sealed record LoginRequest(string Email, string Password) : IRequest<LoginResponse>;
+public sealed record LoginRequest(string Email, string Password, string? ClientIp) : IRequest<LoginResponse>;

@@ -21,9 +21,13 @@
 -- que exista tenant. Excluidas a proposito (y listadas en RlsIsolationTests y en el guardia
 -- del pipeline de deploy):
 --
---   UserCredential, RefreshToken   el login y el refresh buscan por correo o por token sin
---                                  saber aun el tenant. Las protege el filtro de EF y que
---                                  sus consultas van por claves unicas en todo el sistema.
+--   UserCredential, RefreshToken,  el login, el refresh y el enlace de restablecimiento buscan
+--   PasswordSetupToken             por correo o por hash sin saber aun el tenant. Las protege el
+--                                  filtro de EF y que esas consultas van por claves unicas en
+--                                  todo el sistema.
+--   Role, RolePermission, UserRole los permisos del token se calculan en el login, antes de que
+--                                  haya contexto, y el catalogo se re-siembra al arrancar. Sus
+--                                  consultas re-acotan el TenantId a mano (RbacRepository).
 --
 -- Una tabla nueva con TenantId que no este aqui ni en la lista de excluidas hace fallar la
 -- prueba TodaTablaConTenantId_TieneRlsHabilitadoYForzado y el deploy.

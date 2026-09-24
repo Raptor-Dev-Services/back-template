@@ -3,7 +3,6 @@ using Authentication.Domain.Repositories;
 using Authentication.Infrastructure.Persistence;
 using Authentication.Infrastructure.Repositories;
 using Authentication.Infrastructure.Services;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Infrastructure.Persistence;
 
@@ -11,14 +10,23 @@ namespace Authentication.Infrastructure;
 
 public static class ServiceCollectionEx
 {
-    public static IServiceCollection AddAuthenticationInfrastructureServices(
-        this IServiceCollection services, IConfiguration configuration)
+    /// <summary>
+    /// Repositorios, hasher, emisor de tokens y la re-siembra del catalogo RBAC. <see cref="AuthOptions"/> lo
+    /// registra el Host (se enlaza de la configuracion y se valida al arrancar).
+    /// </summary>
+    public static IServiceCollection AddAuthenticationInfrastructureServices(this IServiceCollection services)
     {
         services.AddModuleModel<UserCredentialConfiguration>();
+
         services.AddScoped<IUserCredentialRepository, UserCredentialRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
-        services.AddScoped<IJwtTokenService, JwtTokenService>();
-        services.AddScoped<IPasswordHasher, PasswordHasher>();
+        services.AddScoped<IPasswordSetupTokenRepository, PasswordSetupTokenRepository>();
+        services.AddScoped<IRbacRepository, RbacRepository>();
+
+        services.AddSingleton<IPasswordHasher, PasswordHasher>();
+        services.AddSingleton<IAccessTokenIssuer, AccessTokenIssuer>();
+
+        services.AddHostedService<RbacCatalogSyncService>();
         return services;
     }
 }

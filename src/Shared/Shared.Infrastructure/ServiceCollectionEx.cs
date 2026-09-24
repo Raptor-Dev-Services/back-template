@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Infrastructure.Persistence;
+using Shared.Kernel.Context;
 
 namespace Shared.Infrastructure;
 
@@ -17,6 +18,9 @@ public static class ServiceCollectionEx
         services.AddDbContext<AppDbContext>((provider, options) => options
             .UseNpgsql(connectionString)
             .AddInterceptors(provider.GetRequiredService<TenantRlsConnectionInterceptor>()));
+
+        services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<ITenantScope, TenantScope>();
 
         services.AddHostedService<RlsRoleGuard>();
         return services;

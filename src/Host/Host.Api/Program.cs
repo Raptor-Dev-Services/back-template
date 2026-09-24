@@ -56,7 +56,7 @@ builder.Services.AddUsersInfrastructureServices();
 builder.Services.AddUsersWebApiServices();
 
 builder.Services.AddAuthenticationApplicationServices();
-builder.Services.AddAuthenticationInfrastructureServices(builder.Configuration);
+builder.Services.AddAuthenticationInfrastructureServices();
 builder.Services.AddAuthenticationWebApiServices();
 
 // Un solo formato de error para toda la API (filtro global, modelo invalido, middleware, estado vacio).

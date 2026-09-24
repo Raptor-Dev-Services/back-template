@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Api.IntegrationTests.Infrastructure;
+using Shared.Kernel.Security;
 using Xunit;
 
 namespace Api.IntegrationTests.Tenancy;
@@ -61,8 +62,7 @@ public sealed class CrossTenantIsolationTests(PostgresFixture pg)
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("message").GetString();
 }
 
-/// <summary>Permisos que usan las pruebas. Se llena con el catalogo RBAC cuando exista.</summary>
 internal static class ApiPermissions
 {
-    public static readonly string[] UsersRead = [];
+    public static readonly string[] UsersRead = [KnownPermissions.UsersRead];
 }

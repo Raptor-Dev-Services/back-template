@@ -19,6 +19,6 @@ internal sealed class UpdateUserProfileHandler(IUserProfileRepository profiles)
 
         profile.FullName = fullName;
         await profiles.SaveChangesAsync(cancellationToken);
-        return new UpdateUserProfileSuccess();
+        return new UpdateUserProfileSuccess(UserProfileMapping.ToDto(profile));
     }
 }

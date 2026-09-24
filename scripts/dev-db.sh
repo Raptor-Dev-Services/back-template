@@ -6,6 +6,7 @@
 #   scripts/dev-db.sh rls         aplica (o re-aplica) las policies de RLS como el dueno
 #   scripts/dev-db.sh all         las tres, en orden
 #   scripts/dev-db.sh status      roles, migraciones aplicadas y tablas con RLS
+#   scripts/dev-db.sh reset       BORRA la base backtemplate (solo esa) y corre `all` de nuevo
 #
 # Por que un script y no el init del devstack: ese init solo corre con el volumen vacio, asi que
 # un producto nuevo no entra sin recrear la base de TODOS los productos de la maquina.
@@ -83,11 +84,19 @@ WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity ORDER BY 1;
 SQL
 }
 
+reset() {
+  require_container
+  echo "== reset: se borra la base '$DB_NAME' (solo esa; los roles se conservan)"
+  echo "DROP DATABASE IF EXISTS $DB_NAME WITH (FORCE);" | psql_as postgres postgres
+  provision; migrate; rls
+}
+
 case "${1:-}" in
   provision) provision ;;
   migrate)   migrate ;;
   rls)       rls ;;
   all)       provision; migrate; rls ;;
   status)    status ;;
-  *) sed -n '2,9p' "$0"; exit 1 ;;
+  reset)     reset ;;
+  *) sed -n '2,10p' "$0"; exit 1 ;;
 esac

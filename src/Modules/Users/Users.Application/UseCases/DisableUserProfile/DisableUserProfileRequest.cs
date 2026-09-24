@@ -3,4 +3,5 @@ using Users.Application.UseCases.DisableUserProfile.Responses;
 
 namespace Users.Application.UseCases.DisableUserProfile;
 
-public sealed record DisableUserProfileRequest(Guid PublicId) : IRequest<DisableUserProfileResponse>;
+/// <summary>El actor sale del JWT: nadie se da de baja a si mismo por accidente (ni deja al tenant sin administrador).</summary>
+public sealed record DisableUserProfileRequest(Guid ActorUserId, Guid PublicId) : IRequest<DisableUserProfileResponse>;
