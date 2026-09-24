@@ -3,7 +3,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: back-template/Dockerfile
+      dockerfile: Dockerfile
       target: final
     image: back-template:staging
     environment:

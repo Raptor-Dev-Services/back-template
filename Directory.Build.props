@@ -1,0 +1,31 @@
+<Project>
+  <!--
+    Propiedades comunes de TODOS los proyectos de la plantilla (src/ y tests/).
+
+    NO aplican al submodulo Common/: es codigo de otro repositorio, de solo lectura, con su
+    propia configuracion de compilacion. Heredarle estas propiedades (en especial
+    TreatWarningsAsErrors y la gestion central de paquetes) lo romperia sin que nadie de este
+    repo pueda arreglarlo alli. La condicion compara la ruta del proyecto que se esta evaluando.
+  -->
+  <PropertyGroup>
+    <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
+    <CommonRoot>$(MSBuildThisFileDirectory)Common/</CommonRoot>
+    <IsCommonSubmodule Condition="$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)').StartsWith('$([MSBuild]::NormalizeDirectory('$(CommonRoot)'))'))">true</IsCommonSubmodule>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsCommonSubmodule)' != 'true'">
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 0 errores y 0 warnings: un warning nuevo es un cambio incompleto (regla backend-architecture). -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- La auditoria de NuGet (NU1901-NU1904) tambien es un warning: con lo de arriba, un paquete
+         con vulnerabilidad conocida rompe el build en vez de pasar como aviso. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

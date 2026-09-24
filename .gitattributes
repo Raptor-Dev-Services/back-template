@@ -1,0 +1,16 @@
+# Normaliza los finales de linea en el repositorio: el indice guarda LF y cada checkout
+# convierte segun la plataforma. Los scripts de shell y los archivos que se ejecutan dentro
+# de un contenedor Linux se fuerzan a LF: un bash con CRLF falla con "\r: command not found".
+* text=auto
+
+*.sh      text eol=lf
+*.sql     text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.py      text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="$(CommonRoot)Common.Web/Common.Web.csproj" />
+    <ProjectReference Include="$(CommonRoot)Common.Messaging/Common.Messaging.csproj" />
+    <ProjectReference Include="../../../Shared/Shared.Web/Shared.Web.csproj" />
+    <ProjectReference Include="../Users.Application/Users.Application.csproj" />
+    <ProjectReference Include="../Users.Contracts/Users.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

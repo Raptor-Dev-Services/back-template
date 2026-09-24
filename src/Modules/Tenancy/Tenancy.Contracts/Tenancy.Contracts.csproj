@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="$(CommonRoot)Common.Contracts/Common.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

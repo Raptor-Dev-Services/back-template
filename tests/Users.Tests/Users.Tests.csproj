@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Modules/Users/Users.Domain/Users.Domain.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Application/Users.Application.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Infrastructure/Users.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Modules/Users/Users.Presentation/Users.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>

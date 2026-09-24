@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="$(CommonRoot)Common.MultiTenancy/Common.MultiTenancy.csproj" />
+    <ProjectReference Include="../../Modules/Tenancy/Tenancy.Domain/Tenancy.Domain.csproj" />
+    <ProjectReference Include="../../Modules/Users/Users.Domain/Users.Domain.csproj" />
+    <ProjectReference Include="../Authentication/Authentication.Domain/Authentication.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+</Project>

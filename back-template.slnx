@@ -1,0 +1,44 @@
+<Solution>
+  <Folder Name="/Common/">
+    <Project Path="Common/Common.Contracts/Common.Contracts.csproj" />
+    <Project Path="Common/Common.Messaging/Common.Messaging.csproj" />
+    <Project Path="Common/Common.MultiTenancy/Common.MultiTenancy.csproj" />
+    <Project Path="Common/Common.Infra/Common.Infra.csproj" />
+    <Project Path="Common/Common.Web/Common.Web.csproj" />
+  </Folder>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Host/">
+    <Project Path="src/Host/Host.Api/Host.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/Shared.Infrastructure/Shared.Infrastructure.csproj" />
+    <Project Path="src/Shared/Shared.Web/Shared.Web.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/Authentication/">
+    <Project Path="src/Shared/Authentication/Authentication.Contracts/Authentication.Contracts.csproj" />
+    <Project Path="src/Shared/Authentication/Authentication.Domain/Authentication.Domain.csproj" />
+    <Project Path="src/Shared/Authentication/Authentication.Application/Authentication.Application.csproj" />
+    <Project Path="src/Shared/Authentication/Authentication.Infrastructure/Authentication.Infrastructure.csproj" />
+    <Project Path="src/Shared/Authentication/Authentication.Presentation/Authentication.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Tenancy/">
+    <Project Path="src/Modules/Tenancy/Tenancy.Contracts/Tenancy.Contracts.csproj" />
+    <Project Path="src/Modules/Tenancy/Tenancy.Domain/Tenancy.Domain.csproj" />
+    <Project Path="src/Modules/Tenancy/Tenancy.Application/Tenancy.Application.csproj" />
+    <Project Path="src/Modules/Tenancy/Tenancy.Infrastructure/Tenancy.Infrastructure.csproj" />
+    <Project Path="src/Modules/Tenancy/Tenancy.Presentation/Tenancy.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Users/">
+    <Project Path="src/Modules/Users/Users.Contracts/Users.Contracts.csproj" />
+    <Project Path="src/Modules/Users/Users.Domain/Users.Domain.csproj" />
+    <Project Path="src/Modules/Users/Users.Application/Users.Application.csproj" />
+    <Project Path="src/Modules/Users/Users.Infrastructure/Users.Infrastructure.csproj" />
+    <Project Path="src/Modules/Users/Users.Presentation/Users.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Authentication.Tests/Authentication.Tests.csproj" />
+    <Project Path="tests/Tenancy.Tests/Tenancy.Tests.csproj" />
+    <Project Path="tests/Users.Tests/Users.Tests.csproj" />
+  </Folder>
+</Solution>
